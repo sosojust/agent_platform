@@ -5,19 +5,20 @@ AI Core Service — FastAPI 入口（port 8002）。
   POST /llm/complete   普通 JSON 响应，供 RAG 查询改写等简单任务使用
   POST /llm/stream     HTTP streaming（NDJSON），供 Agent 推理使用
   GET  /prompt/{name}  获取渲染后的 Prompt 模板
-  GET  /health
+  GET  /health         liveness
+  GET  /ready          readiness（检查 LLM API 可达）
 """
 import json
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from config.settings import settings
 from agent_platform_shared.config.nacos import init_nacos_config
 from agent_platform_shared.logging.logger import configure_logging, get_logger
-from agent_platform_shared.middleware.tenant import TenantContextMiddleware
+from agent_platform_shared.fastapi_utils import create_app, ReadinessRegistry
 from agent_platform_shared.models.schemas import LLMRequest, LLMResponse
 from llm.client import complete, stream
 from prompt.manager import get_prompt
@@ -25,20 +26,44 @@ from prompt.manager import get_prompt
 configure_logging(settings.log_level)
 logger = get_logger(__name__)
 
+# ── Readiness ─────────────────────────────────────────────────
+readiness = ReadinessRegistry()
 
+
+async def _check_llm_api() -> bool:
+    """检查 LLM API 是否可达（发一个最小请求）。"""
+    try:
+        result, _ = await complete(
+            messages=[{"role": "user", "content": "hi"}],
+            task_type="simple",
+            max_tokens=1,
+        )
+        return True
+    except Exception:
+        return False
+
+
+# ── Lifespan ──────────────────────────────────────────────────
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    logger.info("ai_core_service_starting", port=settings.port)
+async def lifespan(app) -> AsyncIterator[None]:
     init_nacos_config(settings)
+    readiness.register_check("llm_api", _check_llm_api)
     yield
-    logger.info("ai_core_service_stopped")
 
 
-app = FastAPI(title="AI Core Service", version="0.1.0", lifespan=lifespan)
-app.add_middleware(TenantContextMiddleware)
+# ── App ───────────────────────────────────────────────────────
+app = create_app(
+    title="AI Core Service",
+    service_name="ai-core-service",
+    version="0.1.0",
+    readiness_registry=readiness,
+    lifespan=lifespan,
+)
+
+router = APIRouter()
 
 
-@app.post("/llm/complete", response_model=LLMResponse)
+@router.post("/llm/complete", response_model=LLMResponse)
 async def llm_complete(request: LLMRequest) -> LLMResponse:
     """
     同步 LLM 调用，等待完整响应后返回。
@@ -58,7 +83,7 @@ async def llm_complete(request: LLMRequest) -> LLMResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/llm/stream")
+@router.post("/llm/stream")
 async def llm_stream(request: LLMRequest) -> StreamingResponse:
     """
     流式 LLM 调用，NDJSON 格式逐 token 返回。
@@ -84,7 +109,7 @@ async def llm_stream(request: LLMRequest) -> StreamingResponse:
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
-@app.get("/prompt/{name}")
+@router.get("/prompt/{name}")
 async def get_prompt_api(
     name: str,
     tenant_id: str = Query(default=""),
@@ -95,6 +120,4 @@ async def get_prompt_api(
     return {"name": name, "content": get_prompt(name, variables)}
 
 
-@app.get("/health")
-async def health() -> dict:
-    return {"status": "ok", "service": "ai-core-service", "env": settings.app_env}
+app.include_router(router)

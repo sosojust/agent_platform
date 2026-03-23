@@ -49,4 +49,7 @@
 
 ## 变更记录
 
+- **[2026-03-23]** 采用 V2 版本的服务拆分实现（直接替换原 `agent-platform-repos`）：引入了更加标准化的微服务应用工厂和 `ReadinessRegistry`，全面支持 K8s 语意的 liveness/readiness 探针及统一异常处理。
+- **[2026-03-23]** 重构服务拆分架构：在 `shared-lib` 中封装了 FastAPI 的通用工厂方法 `create_base_app`，统一了微服务的存活（liveness）和就绪（readiness）健康检查机制。
+- **[2026-03-23]** 清理项目中已经生成的 `.DS_Store` 文件。
 - **[2026-03-23]** 初始化整体项目 README 文档：说明了单体架构和服务拆分架构两套探索方案。

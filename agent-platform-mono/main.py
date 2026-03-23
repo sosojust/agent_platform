@@ -1,16 +1,15 @@
 """
-Agent Platform — FastAPI 主入口。
+Agent Platform — FastAPI 主入口（单体版）。
 
-启动流程：
-  1. 配置日志
-  2. 初始化 Nacos 动态配置
-  3. 自动扫描 domains/ 目录，调用每个域的 register.py 完成注册
-  4. 挂载所有路由
-  5. 服务就绪
+启动流程（顺序执行，全部完成后 /ready 才返回 200）：
+  1. Nacos 动态配置
+  2. Embedding / Rerank 模型预热（最慢，约 30~60s）
+  3. 检查 Redis / Milvus / Qdrant 连通性
+  4. 扫描 domains/ 自动注册所有 Agent
 
-关闭流程：
-  1. 释放 HTTP 客户端连接池
-  2. 关闭 Redis 连接
+K8s probe 建议：
+  liveness:  initialDelaySeconds: 15,  period: 30
+  readiness: initialDelaySeconds: 90,  period: 10, failureThreshold: 12
 """
 import importlib
 import pkgutil
@@ -29,6 +28,7 @@ from shared.config.nacos import init_nacos_config
 from shared.logging.logger import configure_logging, get_logger
 from shared.middleware.tenant import TenantContextMiddleware, get_current_tenant_id
 from shared.models.schemas import AgentRunRequest, AgentRunResponse
+from shared.fastapi_utils import ReadinessRegistry, make_health_router, register_error_handlers
 from agent_service.agents.registry import registry
 from agent_service.checkpoints.redis_checkpoint import get_checkpointer
 from mcp_server.client.gateway import gateway_client
@@ -36,32 +36,93 @@ from mcp_server.client.gateway import gateway_client
 configure_logging()
 logger = get_logger(__name__)
 
+# ── Readiness Registry ────────────────────────────────────────
+# 单体：汇总所有模块的就绪条件
+readiness = ReadinessRegistry()
+
+
+# ── 动态检查函数（每次 /ready 调用时执行）───────────────────
+
+async def _check_redis() -> bool:
+    try:
+        from memory_rag.memory.manager import memory_manager
+        r = await memory_manager._r()
+        await r.ping()
+        return True
+    except Exception:
+        return False
+
+
+async def _check_milvus() -> bool:
+    try:
+        from memory_rag.vector.store import vector_store
+        vector_store._client.list_collections()
+        return True
+    except Exception:
+        return False
+
+
+async def _check_qdrant() -> bool:
+    try:
+        from qdrant_client import QdrantClient
+        client = QdrantClient(url=settings.vector_db.qdrant_url, timeout=3)
+        client.get_collections()
+        return True
+    except Exception:
+        return False
+
 
 # ── Lifespan ──────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    logger.info("agent_platform_starting", env=settings.app_env, version="0.2.0")
+    logger.info("agent_platform_starting", env=settings.app_env)
 
-    # 1. 接入 Nacos 动态配置（非阻塞，失败降级到 .env）
+    # 1. Nacos 动态配置（失败不阻断启动）
     init_nacos_config(settings)
 
-    # 2. 自动发现并注册所有业务域
-    #    只要在 domains/ 下新建目录 + register.py，无需修改此处
-    for module_info in pkgutil.iter_modules(domains.__path__):
-        if module_info.ispkg:
-            try:
-                mod = importlib.import_module(f"domains.{module_info.name}.register")
-                mod.register()
-                logger.info("domain_registered", domain=module_info.name)
-            except Exception as e:
-                # 单个域注册失败不影响其他域启动
-                logger.error("domain_register_failed", domain=module_info.name, error=str(e))
+    # 2. 预热 Embedding / Rerank 模型（这是最慢的步骤）
+    #    预热完成前 /ready 返回 503，K8s 不分流量
+    logger.info("warming_up_models")
+    try:
+        from memory_rag.embedding.service import embedding_service
+        from memory_rag.rerank.service import rerank_service
+        embedding_service.embed(["warmup"])
+        rerank_service.rerank("warmup", ["test"], top_k=1)
+        readiness.mark_ready("models")        # 模型加载完成
+        logger.info("models_ready")
+    except Exception as e:
+        logger.error("model_warmup_failed", error=str(e))
+        # 模型加载失败时不 mark_ready，/ready 持续返回 503
 
-    logger.info("all_domains_registered", total=len(registry.list_all()))
+    # 3. 注册基础设施动态检查（每次 /ready 都会 ping）
+    readiness.register_check("redis", _check_redis)
+    readiness.register_check("milvus", _check_milvus)
+    readiness.register_check("qdrant", _check_qdrant)
+
+    # 4. 自动发现并注册所有业务域
+    domain_count = 0
+    for mod_info in pkgutil.iter_modules(domains.__path__):
+        if mod_info.ispkg:
+            try:
+                mod = importlib.import_module(f"domains.{mod_info.name}.register")
+                mod.register()
+                domain_count += 1
+                logger.info("domain_registered", domain=mod_info.name)
+            except Exception as e:
+                logger.error("domain_register_failed", domain=mod_info.name, error=str(e))
+
+    # 所有域注册完成才标记 ready
+    if domain_count > 0:
+        readiness.mark_ready("domains")
+        logger.info("all_domains_ready", total=domain_count)
+    else:
+        logger.error("no_domains_registered")
+
+    logger.info("agent_platform_started")
     yield
 
-    # 释放资源
+    # ── 关闭阶段 ──
     await gateway_client.close()
     logger.info("agent_platform_stopped")
 
@@ -77,16 +138,18 @@ app = FastAPI(
 
 app.add_middleware(TenantContextMiddleware)
 
+# 统一异常处理
+register_error_handlers(app)
 
-# ── Routes ────────────────────────────────────────────────────
+# 健康检查路由（自动挂载 /health 和 /ready）
+app.include_router(make_health_router("agent-platform", readiness))
+
+
+# ── 业务路由 ──────────────────────────────────────────────────
 
 @app.post("/agent/run", response_model=AgentRunResponse, summary="同步运行 Agent")
 async def run_agent(request: AgentRunRequest) -> AgentRunResponse:
-    """
-    同步调用，等待 Agent 完整执行后返回。
-    适合简单查询场景，响应时间 < 10s。
-    超过此时间建议改用 /agent/stream。
-    """
+    """同步调用，等待完整响应。适合响应时间 < 10s 的简单查询。"""
     tenant_id = get_current_tenant_id()
     session_id = request.session_id or str(uuid.uuid4())
 
@@ -101,14 +164,10 @@ async def run_agent(request: AgentRunRequest) -> AgentRunResponse:
     agent = agent_meta.factory()
     checkpointer = await get_checkpointer()
     config = {"configurable": {"thread_id": session_id, "checkpointer": checkpointer}}
-
     initial_state = {
         "messages": [HumanMessage(content=request.input)],
-        "session_id": session_id,
-        "tenant_id": tenant_id,
-        "memory_context": "",
-        "rag_context": "",
-        "step_count": 0,
+        "session_id": session_id, "tenant_id": tenant_id,
+        "memory_context": "", "rag_context": "", "step_count": 0,
     }
 
     try:
@@ -116,11 +175,8 @@ async def run_agent(request: AgentRunRequest) -> AgentRunResponse:
         output = str(result["messages"][-1].content)
         logger.info("agent_run_complete", agent_id=request.agent_id,
                     session_id=session_id, steps=result["step_count"])
-        return AgentRunResponse(
-            session_id=session_id,
-            output=output,
-            steps=[{"step_count": result["step_count"]}],
-        )
+        return AgentRunResponse(session_id=session_id, output=output,
+                                steps=[{"step_count": result["step_count"]}])
     except Exception as e:
         logger.error("agent_run_failed", agent_id=request.agent_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -128,32 +184,29 @@ async def run_agent(request: AgentRunRequest) -> AgentRunResponse:
 
 @app.post("/agent/stream", summary="流式运行 Agent（SSE）")
 async def stream_agent(request: AgentRunRequest) -> StreamingResponse:
-    """
-    SSE 流式输出，逐 token 返回。
-    事件类型：token | step_start | step_end | done | error
-    """
+    """SSE 流式输出，事件类型：token | step_start | step_end | done | error"""
     tenant_id = get_current_tenant_id()
     session_id = request.session_id or str(uuid.uuid4())
 
     agent_meta = registry.get(request.agent_id)
     if not agent_meta:
-        raise HTTPException(status_code=404, detail=f"Agent '{request.agent_id}' not found")
+        raise HTTPException(status_code=404,
+                            detail=f"Agent '{request.agent_id}' not found")
 
     agent = agent_meta.factory()
     checkpointer = await get_checkpointer()
     config = {"configurable": {"thread_id": session_id, "checkpointer": checkpointer}}
     initial_state = {
         "messages": [HumanMessage(content=request.input)],
-        "session_id": session_id,
-        "tenant_id": tenant_id,
-        "memory_context": "",
-        "rag_context": "",
-        "step_count": 0,
+        "session_id": session_id, "tenant_id": tenant_id,
+        "memory_context": "", "rag_context": "", "step_count": 0,
     }
 
     async def event_generator():
         try:
-            async for event in agent.astream_events(initial_state, config=config, version="v2"):
+            async for event in agent.astream_events(
+                initial_state, config=config, version="v2"
+            ):
                 kind = event["event"]
                 if kind == "on_chat_model_stream":
                     token = event["data"]["chunk"].content
@@ -168,7 +221,11 @@ async def stream_agent(request: AgentRunRequest) -> StreamingResponse:
             logger.error("agent_stream_error", error=str(e))
             yield f"data: {json.dumps({'event': 'error', 'data': str(e)})}\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/agent/list", summary="列出所有已注册的 Agent")
@@ -178,8 +235,3 @@ async def list_agents() -> list[dict]:
          "description": a.description, "tags": a.tags, "version": a.version}
         for a in registry.list_all()
     ]
-
-
-@app.get("/health")
-async def health() -> dict:
-    return {"status": "ok", "env": settings.app_env, "agents": len(registry.list_all())}
