@@ -5,7 +5,7 @@ Agent Platform — FastAPI 主入口（单体版）。
   1. Nacos 动态配置
   2. Embedding / Rerank 模型预热（最慢，约 30~60s）
   3. 检查 Redis / Milvus / Qdrant 连通性
-  4. 扫描 domains/ 自动注册所有 Agent
+  4. 扫描 apps/ 自动注册所有 Agent
 
 K8s probe 建议：
   liveness:  initialDelaySeconds: 15,  period: 30
@@ -22,16 +22,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 
-import domains
+import apps
 from shared.config.settings import settings
 from shared.config.nacos import init_nacos_config
 from shared.logging.logger import configure_logging, get_logger
 from shared.middleware.tenant import TenantContextMiddleware, get_current_tenant_id
 from shared.models.schemas import AgentRunRequest, AgentRunResponse
 from shared.fastapi_utils import ReadinessRegistry, make_health_router, register_error_handlers
-from agent_service.agents.registry import registry
-from agent_service.checkpoints.redis_checkpoint import get_checkpointer
-from mcp_server.client.gateway import gateway_client
+from core.agent_engine.agents.registry import registry
+from core.agent_engine.checkpoints.redis_checkpoint import get_checkpointer
+from core.tool_service.client.gateway import gateway_client
 
 configure_logging()
 logger = get_logger(__name__)
@@ -45,7 +45,7 @@ readiness = ReadinessRegistry()
 
 async def _check_redis() -> bool:
     try:
-        from memory_rag.memory.manager import memory_manager
+        from core.memory_rag.memory.manager import memory_manager
         r = await memory_manager._r()
         await r.ping()
         return True
@@ -55,7 +55,7 @@ async def _check_redis() -> bool:
 
 async def _check_milvus() -> bool:
     try:
-        from memory_rag.vector.store import vector_store
+        from core.memory_rag.vector.store import vector_store
         vector_store._client.list_collections()
         return True
     except Exception:
@@ -85,8 +85,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     #    预热完成前 /ready 返回 503，K8s 不分流量
     logger.info("warming_up_models")
     try:
-        from memory_rag.embedding.service import embedding_service
-        from memory_rag.rerank.service import rerank_service
+        from core.memory_rag.embedding.service import embedding_service
+        from core.memory_rag.rerank.service import rerank_service
         embedding_service.embed(["warmup"])
         rerank_service.rerank("warmup", ["test"], top_k=1)
         readiness.mark_ready("models")        # 模型加载完成
@@ -100,21 +100,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     readiness.register_check("milvus", _check_milvus)
     readiness.register_check("qdrant", _check_qdrant)
 
-    # 4. 自动发现并注册所有业务域
-    domain_count = 0
-    for mod_info in pkgutil.iter_modules(domains.__path__):
-        if mod_info.ispkg:
-            try:
-                mod = importlib.import_module(f"domains.{mod_info.name}.register")
-                mod.register()
-                domain_count += 1
-                logger.info("domain_registered", domain=mod_info.name)
-            except Exception as e:
-                logger.error("domain_register_failed", domain=mod_info.name, error=str(e))
+    # 4. 注册所有业务域的 Agent
+    from apps.policy.register import register as register_policy
+    from apps.claim.register import register as register_claim
+    from apps.customer.register import register as register_customer
+
+    register_policy()
+    register_claim()
+    register_customer()
+    domain_count = 3
 
     # 所有域注册完成才标记 ready
     if domain_count > 0:
-        readiness.mark_ready("domains")
+        readiness.mark_ready("apps")
         logger.info("all_domains_ready", total=domain_count)
     else:
         logger.error("no_domains_registered")

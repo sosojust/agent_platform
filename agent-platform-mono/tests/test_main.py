@@ -22,6 +22,12 @@ async def test_health(client: AsyncClient):
 
 
 async def test_list_agents_includes_all_domains(client: AsyncClient):
+    from apps.policy.register import register as register_policy
+    from apps.claim.register import register as register_claim
+    from apps.customer.register import register as register_customer
+    register_policy()
+    register_claim()
+    register_customer()
     resp = await client.get("/agent/list")
     assert resp.status_code == 200
     ids = [a["agent_id"] for a in resp.json()]
@@ -38,19 +44,23 @@ async def test_run_unknown_agent(client: AsyncClient):
     assert resp.status_code == 404
 
 
-async def test_run_agent_returns_session_id(client: AsyncClient, mocker):
-    mocker.patch(
-        "main.registry.get",
-        return_value=type("M", (), {
-            "factory": lambda self: type("A", (), {
-                "ainvoke": AsyncMock(return_value={
-                    "messages": [type("Msg", (), {"content": "已为您查询"})()],
-                    "step_count": 2,
-                })
-            })()
-        })(),
-    )
+async def test_run_agent_returns_session_id(client: AsyncClient, monkeypatch):
     from unittest.mock import AsyncMock
+
+    # Create mock objects to replace registry.get and its return value
+    mock_agent_instance = type("A", (), {
+        "ainvoke": AsyncMock(return_value={
+            "messages": [type("Msg", (), {"content": "已为您查询"})()],
+            "step_count": 2,
+        })
+    })()
+    
+    mock_agent_model = type("M", (), {
+        "factory": lambda self: mock_agent_instance
+    })()
+    
+    # Patch main.registry.get
+    monkeypatch.setattr("main.registry.get", lambda x: mock_agent_model)
     resp = await client.post("/agent/run", json={
         "agent_id": "policy-assistant",
         "input": "查询保单 P2024001",

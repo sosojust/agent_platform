@@ -26,41 +26,41 @@ agent-platform/
 │   └── models/
 │       └── schemas.py             # 跨层公用 Pydantic 模型（请求/响应/事件）
 │
-├── ai_core/                       # AI 能力层：LLM 调用、Prompt 管理、模型路由
-│   ├── llm/
-│   │   └── client.py              # LiteLLM 统一封装，按 task_type 自动选模型 + 降本路由
-│   ├── prompt/
-│   │   └── manager.py             # Langfuse Prompt 版本管理，本地 fallback
-│   └── routing/
-│       └── router.py              # 模型路由策略：simple/complex/local 三档
+├── core/                          # 核心平台服务层
+│   ├── ai_core/                   # AI 能力层 (大模型与 Prompt)
+│   │   ├── llm/
+│   │   │   └── client.py          # LiteLLM 统一封装，Langfuse 上报
+│   │   ├── prompt/
+│   │   │   └── manager.py         # Prompt 统一管理 (Langfuse 拉取/本地兜底)
+│   │   └── routing/
+│   │       └── router.py          # 模型路由 (大小模型、本地模型切换)
+│   │
+│   ├── memory_rag/                # 数据智能层 (记忆与知识库)
+│   │   ├── embedding/
+│   │   │   └── service.py         # bge-m3 本地 Embedding
+│   │   ├── rerank/
+│   │   │   └── service.py         # bge-reranker 本地精排
+│   │   ├── vector/
+│   │   │   └── store.py           # Milvus 向量库操作
+│   │   ├── memory/
+│   │   │   ├── manager.py         # 长期/短期记忆管理 (mem0/redis)
+│   │   │   └── config.py          # 各域记忆策略配置基类
+│   │   └── rag/
+│   │       └── pipeline.py        # 统一 RAG 流程
+│   │
+│   ├── tool_service/              # MCP 工具服务层 (与业务系统对接)
+│   │   └── client/
+│   │       └── gateway.py         # 统一网关客户端 (带鉴权和租户头)
+│   │
+│   └── agent_engine/              # 核心编排框架层 (LangGraph)
+│       ├── agents/
+│       │   └── registry.py        # 全局 Agent 注册表
+│       ├── workflows/
+│       │   └── base_agent.py      # 可复用的基础 LangGraph Graph
+│       └── checkpoints/
+│           └── redis_checkpoint.py# 中断恢复与 Human-in-the-loop
 │
-├── memory_rag/                    # 数据智能层：记忆管理 + 向量检索
-│   ├── embedding/
-│   │   └── service.py             # 本地 bge-m3，进程内推理，数据不出内网
-│   ├── rerank/
-│   │   └── service.py             # 本地 bge-reranker-v2-m3，召回后精排
-│   ├── vector/
-│   │   └── store.py               # Milvus 操作层，按 tenant_id 隔离 collection
-│   ├── memory/
-│   │   ├── manager.py             # 短期记忆(Redis) + 长期记忆(mem0) 双层管理
-│   │   └── config.py              # MemoryConfig 数据类，各域可覆盖默认参数
-│   └── rag/
-│       └── pipeline.py            # 完整 RAG 流程：查询改写 → 向量召回 → rerank
-│
-├── mcp_server/                    # MCP 协议层：工具注册 + 对内网 Gateway 的 HTTP 调用
-│   └── client/
-│       └── gateway.py             # 内网 HTTP 客户端，统一注入 tenant header + 重试
-│   （tools 已迁移到各业务域 domains/*/tools/）
-│
-├── agent_service/                 # Agent 编排层：注册表 + LangGraph 基础工作流
-│   ├── agents/
-│   │   └── registry.py            # Agent 注册表，启动时由各域 register.py 填充
-│   ├── workflows/
-│   │   └── base_agent.py          # 可复用的基础 LangGraph Graph，各域可继承扩展
-│   └── checkpoints/
-│       └── redis_checkpoint.py    # LangGraph Redis Checkpoint，支持中断恢复
-│
-├── domains/                       # 业务域：每个域自成体系，对框架层零侵入
+├── apps/                       # 业务域：每个域自成体系，对框架层零侵入
 │   ├── __init__.py                # 域自动发现入口
 │   │
 │   ├── policy/                    # 保单域
@@ -95,11 +95,11 @@ agent-platform/
 │
 └── tests/                         # 测试，与 src 目录结构镜像
     ├── shared/
-    ├── ai_core/
-    ├── memory_rag/
-    ├── mcp_server/
-    ├── agent_service/
-    └── domains/
+    ├── core.ai_core/
+    ├── core.memory_rag/
+    ├── core.tool_service/
+    ├── core.agent_engine/
+    └── apps/
         ├── test_policy.py
         ├── test_claim.py
         └── test_customer.py
@@ -120,7 +120,7 @@ agent-platform/
 | `middleware/tenant.py` | 从 X-Tenant-Id Header 提取租户信息，写入 contextvars，全链路可读 |
 | `models/schemas.py` | AgentRunRequest / AgentRunResponse / StreamEvent 等跨层公用模型 |
 
-### ai_core/ — AI 能力层
+### core/ai_core/ — AI 能力层
 只关心"怎么调 LLM"，不关心"做什么业务"。
 
 | 文件 | 职责 |
@@ -129,7 +129,7 @@ agent-platform/
 | `prompt/manager.py` | 从 Langfuse 拉取版本化 Prompt，降级时用本地 fallback |
 | `routing/router.py` | 按 task_type 选模型：simple→小模型省钱，complex→强模型，local→敏感数据不出网 |
 
-### memory_rag/ — 数据智能层
+### core/memory_rag/ — 数据智能层
 只关心"怎么存取记忆和知识"，不关心"哪个业务用"。
 
 | 文件 | 职责 |
@@ -141,14 +141,14 @@ agent-platform/
 | `memory/config.py` | MemoryConfig 数据类，各域覆盖 top_k / 阈值 / 是否启用长期记忆 |
 | `rag/pipeline.py` | 查询改写 → 向量召回 → rerank，接收 MemoryConfig 参数 |
 
-### mcp_server/ — MCP 协议层
+### core/tool_service/ — MCP 协议层
 只关心"怎么和内网业务系统通信"。
 
 | 文件 | 职责 |
 |------|------|
 | `client/gateway.py` | httpx 异步客户端，自动注入 tenant header，tenacity 重试，统一错误日志 |
 
-### agent_service/ — 编排框架层
+### core/agent_engine/ — 编排框架层
 只关心"LangGraph 的基础结构"，不关心具体业务流程。
 
 | 文件 | 职责 |
@@ -157,7 +157,7 @@ agent-platform/
 | `workflows/base_agent.py` | 可复用的基础 Graph（记忆拉取→RAG→推理→工具→记忆写回），各域继承后扩展节点 |
 | `checkpoints/redis_checkpoint.py` | Redis Saver，支持 Human-in-the-loop 和中断恢复 |
 
-### domains/ — 业务域层
+### apps/ — 业务域层
 **新增业务场景只需要在这里加目录，框架层不动。**
 
 每个域包含：
@@ -196,14 +196,14 @@ open http://localhost:8000/docs
 
 ```bash
 # 1. 创建目录结构
-mkdir -p domains/underwriting/{tools,prompts}
+mkdir -p apps/underwriting/{tools,prompts}
 
 # 2. 实现以下文件
-# domains/underwriting/register.py       ← 必须
-# domains/underwriting/underwriting_agent.py
-# domains/underwriting/memory_config.py
-# domains/underwriting/tools/underwrite_tools.py
-# domains/underwriting/prompts/system.txt
+# apps/underwriting/register.py       ← 必须
+# apps/underwriting/underwriting_agent.py
+# apps/underwriting/memory_config.py
+# apps/underwriting/tools/underwrite_tools.py
+# apps/underwriting/prompts/system.txt
 
 # 3. 重启服务，框架自动发现并注册
 # 无需修改 main.py 或任何框架层代码
