@@ -9,13 +9,31 @@
 ### 1. 单体架构 (agent-platform-mono)
 位于 `agent-platform-mono/` 目录下，采用传统的单体应用架构设计。所有的核心模块和业务领域都集中在一个代码库和进程中运行。
 
-**主要模块包括：**
-- `agent_service/`: Agent 的核心服务引擎，负责 Agent 的注册与执行。
-- `ai_core/`: 大语言模型（LLM）交互、Prompt 管理及路由核心模块。
-- `domains/`: 具体业务领域实现（如理赔 `claim`、客户服务 `customer`、保单 `policy` 等）。
-- `mcp_server/`: MCP (Model Context Protocol) 协议服务端实现。
-- `memory_rag/`: 记忆管理与 RAG（检索增强生成）系统，包含向量存储与重排。
-- `shared/`: 公共基础组件（配置、日志、中间件、模型等）。
+#### 代码目录结构
+```text
+agent-platform-mono/
+├── apps/                         # 业务域 (原 domains)
+│   ├── policy/                   # 示例：保单域
+│   │   ├── register.py           # 域注册入口 (注册到 AgentRegistry)
+│   │   ├── policy_agent.py       # (可选) 自定义 LangGraph workflow
+│   │   ├── memory_config.py      # (可选) 覆盖全局 Memory 策略
+│   │   ├── tools/                # MCP Tools
+│   │   └── prompts/              # System Prompts
+│   ├── claim/                    # 示例：理赔域
+│   └── customer/                 # 示例：客服域
+├── core/                         # 核心平台服务层
+│   ├── agent_engine/             # Agent 编排层 (LangGraph, 注册表)
+│   ├── ai_core/                  # AI 能力层 (LLM, Prompts, 路由)
+│   ├── memory_rag/               # 数据智能层 (记忆, 知识库)
+│   └── tool_service/             # Tool 服务层 (MCP 客户端等)
+├── shared/                       # 共享基础组件 (无业务逻辑)
+│   ├── config/                   # 配置管理
+│   ├── middleware/               # FastAPI 中间件
+│   ├── models/                   # 公共数据模型
+│   └── logging/                  # 统一日志
+├── tests/                        # 单元测试与集成测试
+└── main.py                       # FastAPI 入口
+```
 
 ### 2. 服务拆分架构 (agent-platform-repos)
 位于 `agent-platform-repos/` 目录下，采用微服务架构设计，将不同领域的职责拆分为独立的服务，各服务可通过 API 或消息队列进行通信。
