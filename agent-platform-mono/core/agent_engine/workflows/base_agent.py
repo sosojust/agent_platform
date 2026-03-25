@@ -26,7 +26,7 @@ logger = get_logger(__name__)
 
 class BaseAgentState(TypedDict):
     messages: Annotated[list[BaseMessage], operator.add]
-    session_id: str
+    conversation_id: str
     tenant_id: str
     memory_context: str
     rag_context: str
@@ -42,7 +42,7 @@ def make_retrieve_memory_node(cfg: MemoryConfig):
             (m.content for m in reversed(state["messages"]) if isinstance(m, HumanMessage)), ""
         )
         context = await memory_manager.build_memory_context(
-            session_id=state["session_id"],
+            conversation_id=state["conversation_id"],
             query=str(last_input),
             tenant_id=state["tenant_id"],
             config=cfg,
@@ -77,7 +77,7 @@ def make_llm_reason_node(tools: list, system_prompt_key: str, cfg: MemoryConfig)
 
     async def llm_reason(state: BaseAgentState) -> dict:
         if state["step_count"] >= cfg.max_steps:
-            logger.warning("max_steps_reached", session_id=state["session_id"])
+            logger.warning("max_steps_reached", conversation_id=state["conversation_id"])
             return {"messages": [], "step_count": state["step_count"]}
 
         system_parts = [
@@ -101,7 +101,7 @@ def make_update_memory_node(cfg: MemoryConfig):
         for msg in state["messages"][-2:]:
             role = "user" if isinstance(msg, HumanMessage) else "assistant"
             await memory_manager.append_short_term(
-                session_id=state["session_id"],
+                conversation_id=state["conversation_id"],
                 role=role,
                 content=str(msg.content),
                 tenant_id=state["tenant_id"],

@@ -72,6 +72,9 @@ class AppSettings(BaseSettings):
     mcp_service_url: str = "http://localhost:8004"
     internal_gateway_url: str = "http://localhost:8000"
     gateway_timeout: int = 30
+    external_mcp_endpoints: list[str] = Field(default_factory=list, alias="EXTERNAL_MCP_ENDPOINTS")
+    external_mcp_token: str = Field(default="", alias="EXTERNAL_MCP_TOKEN")
+    tool_auth_map: dict[str, str] = Field(default_factory=dict, alias="TOOL_AUTH_MAP")
 
     llm: LLMSettings = Field(default_factory=LLMSettings)
     vector_db: VectorDBSettings = Field(default_factory=VectorDBSettings)

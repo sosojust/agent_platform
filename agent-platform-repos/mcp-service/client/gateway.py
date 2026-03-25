@@ -3,18 +3,30 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from config.settings import settings
 from agent_platform_shared.logging.logger import get_logger
-from agent_platform_shared.middleware.tenant import get_current_tenant_id, get_current_trace_id
+from agent_platform_shared.middleware.tenant import (
+    get_current_tenant_id,
+    get_current_trace_id,
+    get_current_conversation_id,
+    get_current_thread_id,
+    get_current_user_token,
+)
 
 logger = get_logger(__name__)
 
 
 def _headers() -> dict:
-    return {
+    h = {
         "X-Tenant-Id": get_current_tenant_id(),
         "X-Trace-Id": get_current_trace_id(),
+        "X-Conversation-Id": get_current_conversation_id(),
+        "X-Thread-Id": get_current_thread_id() or get_current_conversation_id(),
         "X-Source": "agent",
         "Content-Type": "application/json",
     }
+    token = get_current_user_token()
+    if token:
+        h["X-User-Token"] = token
+    return h
 
 
 class GatewayClient:

@@ -32,7 +32,12 @@ from clients.memory_rag_client import memory_rag_client
 from clients.mcp_client import mcp_client
 from agent_platform_shared.config.nacos import init_nacos_config
 from agent_platform_shared.logging.logger import configure_logging, get_logger
-from agent_platform_shared.middleware.tenant import TenantContextMiddleware, get_current_tenant_id
+from agent_platform_shared.middleware.tenant import (
+    TenantContextMiddleware,
+    get_current_tenant_id,
+    set_current_conversation_id,
+    set_current_thread_id,
+)
 from agent_platform_shared.models.schemas import AgentRunRequest, AgentRunResponse
 
 configure_logging(settings.log_level)
@@ -72,11 +77,11 @@ app = FastAPI(title="Agent Service", version="0.1.0", lifespan=lifespan)
 app.add_middleware(TenantContextMiddleware)
 
 
-def _initial_state(request: AgentRunRequest, session_id: str, tenant_id: str,
+def _initial_state(request: AgentRunRequest, conversation_id: str, tenant_id: str,
                    meta) -> dict:
     return {
         "messages": [HumanMessage(content=request.input)],
-        "session_id": session_id,
+        "conversation_id": conversation_id,
         "tenant_id": tenant_id,
         "memory_context": "",
         "rag_context": "",
@@ -91,7 +96,9 @@ def _initial_state(request: AgentRunRequest, session_id: str, tenant_id: str,
 async def run_agent(request: AgentRunRequest) -> AgentRunResponse:
     """等待 Agent 完整执行后返回，适合响应时间 < 10s 的简单查询。"""
     tenant_id = get_current_tenant_id()
-    session_id = request.session_id or str(uuid.uuid4())
+    conversation_id = request.conversation_id or str(uuid.uuid4())
+    set_current_conversation_id(conversation_id)
+    set_current_thread_id(conversation_id)
 
     meta = registry.get(request.agent_id)
     if not meta:
@@ -101,16 +108,16 @@ async def run_agent(request: AgentRunRequest) -> AgentRunResponse:
 
     agent = meta.factory()
     checkpointer = await get_checkpointer()
-    config = {"configurable": {"thread_id": session_id, "checkpointer": checkpointer}}
+    config = {"configurable": {"thread_id": conversation_id, "checkpointer": checkpointer}}
 
     try:
-        result = await agent.ainvoke(_initial_state(request, session_id, tenant_id, meta),
+        result = await agent.ainvoke(_initial_state(request, conversation_id, tenant_id, meta),
                                      config=config)
         output = str(result["messages"][-1].content)
         logger.info("agent_run_complete", agent_id=request.agent_id,
-                    session_id=session_id, steps=result["step_count"])
+                    conversation_id=conversation_id, steps=result["step_count"])
         return AgentRunResponse(
-            session_id=session_id, output=output,
+            conversation_id=conversation_id, output=output,
             steps=[{"step_count": result["step_count"]}],
         )
     except Exception as e:
@@ -130,7 +137,9 @@ async def stream_agent(request: AgentRunRequest) -> StreamingResponse:
       {"event": "error",      "data": "error msg"}    发生错误
     """
     tenant_id = get_current_tenant_id()
-    session_id = request.session_id or str(uuid.uuid4())
+    conversation_id = request.conversation_id or str(uuid.uuid4())
+    set_current_conversation_id(conversation_id)
+    set_current_thread_id(conversation_id)
 
     meta = registry.get(request.agent_id)
     if not meta:
@@ -139,8 +148,8 @@ async def stream_agent(request: AgentRunRequest) -> StreamingResponse:
 
     agent = meta.factory()
     checkpointer = await get_checkpointer()
-    config = {"configurable": {"thread_id": session_id, "checkpointer": checkpointer}}
-    initial_state = _initial_state(request, session_id, tenant_id, meta)
+    config = {"configurable": {"thread_id": conversation_id, "checkpointer": checkpointer}}
+    initial_state = _initial_state(request, conversation_id, tenant_id, meta)
 
     async def event_generator():
         try:

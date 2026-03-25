@@ -94,7 +94,7 @@ async def rag_retrieve(request: RAGRetrieveRequest) -> RAGRetrieveResponse:
 async def memory_get_context(request: MemoryGetRequest) -> MemoryGetResponse:
     try:
         context = await memory_manager.build_memory_context(
-            session_id=request.session_id, query=request.query,
+            conversation_id=request.conversation_id, query=request.query,
             tenant_id=request.tenant_id,
         )
         return MemoryGetResponse(context=context)
@@ -107,7 +107,7 @@ async def memory_get_context(request: MemoryGetRequest) -> MemoryGetResponse:
 async def memory_append(request: MemoryAppendRequest) -> None:
     try:
         await memory_manager.append_short_term(
-            session_id=request.session_id, role=request.role,
+            conversation_id=request.conversation_id, role=request.role,
             content=request.content, tenant_id=request.tenant_id,
         )
     except Exception as e:

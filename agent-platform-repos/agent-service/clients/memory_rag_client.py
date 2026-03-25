@@ -3,17 +3,29 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from config.settings import settings
 from agent_platform_shared.logging.logger import get_logger
-from agent_platform_shared.middleware.tenant import get_current_tenant_id, get_current_trace_id
+from agent_platform_shared.middleware.tenant import (
+    get_current_tenant_id,
+    get_current_trace_id,
+    get_current_conversation_id,
+    get_current_thread_id,
+    get_current_user_token,
+)
 
 logger = get_logger(__name__)
 
 
 def _headers() -> dict:
-    return {
+    h = {
         "X-Tenant-Id": get_current_tenant_id(),
         "X-Trace-Id": get_current_trace_id(),
+        "X-Conversation-Id": get_current_conversation_id(),
+        "X-Thread-Id": get_current_thread_id() or get_current_conversation_id(),
         "Content-Type": "application/json",
     }
+    token = get_current_user_token()
+    if token:
+        h["X-User-Token"] = token
+    return h
 
 
 class MemoryRagClient:
@@ -51,25 +63,25 @@ class MemoryRagClient:
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8),
            retry=retry_if_exception_type(httpx.TransportError), reraise=True)
     async def get_memory_context(
-        self, session_id: str, query: str, tenant_id: str
+        self, conversation_id: str, query: str, tenant_id: str
     ) -> str:
         """获取 session 记忆上下文。"""
         resp = await self._client.post(
             "/memory/get-context",
-            json={"session_id": session_id, "query": query, "tenant_id": tenant_id},
+            json={"conversation_id": conversation_id, "query": query, "tenant_id": tenant_id},
             headers=_headers(),
         )
         resp.raise_for_status()
         return resp.json()["context"]
 
     async def append_memory(
-        self, session_id: str, role: str, content: str, tenant_id: str
+        self, conversation_id: str, role: str, content: str, tenant_id: str
     ) -> None:
         """追加对话到短期记忆（fire-and-forget，失败不阻断主流程）。"""
         try:
             resp = await self._client.post(
                 "/memory/append",
-                json={"session_id": session_id, "role": role,
+                json={"conversation_id": conversation_id, "role": role,
                       "content": content, "tenant_id": tenant_id},
                 headers=_headers(),
             )

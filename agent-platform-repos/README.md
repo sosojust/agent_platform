@@ -55,8 +55,8 @@ shared-lib/
     │   ├── settings_base.py            各服务继承的基础 Settings
     │   └── nacos.py                    Nacos 动态配置接入
     ├── logging/logger.py               structlog JSON 日志
-    ├── middleware/tenant.py            X-Tenant-Id Header → contextvars
-    └── models/schemas.py               跨服务公用 Pydantic 模型
+    ├── middleware/tenant.py            上下文四元透传 → contextvars（tenant/conversation/thread/trace）
+    └── models/schemas.py               跨服务公用 Pydantic 模型（使用 conversation_id）
 ```
 
 ### agent-service/
@@ -149,6 +149,7 @@ curl http://localhost:8004/health   # mcp-service
 curl -X POST http://localhost:8001/agent/run \
   -H "Content-Type: application/json" \
   -H "X-Tenant-Id: tenant_001" \
+  -H "X-Conversation-Id: conv_demo_001" \
   -d '{"agent_id": "policy-assistant", "input": "查询保单 P2024001"}'
 
 # 5. 测试 SSE 流式输出
@@ -156,7 +157,36 @@ curl -N http://localhost:8001/agent/stream \
   -X POST \
   -H "Content-Type: application/json" \
   -H "X-Tenant-Id: tenant_001" \
+  -H "X-Conversation-Id: conv_demo_002" \
   -d '{"agent_id": "claim-assistant", "input": "我的理赔 C2024001 进展如何？"}'
+
+---
+
+## 上下文四元透传规范（必读）
+- 透传元素：
+  - X-Tenant-Id：租户标识
+  - X-Conversation-Id：业务会话ID（跨多请求稳定标识同一对话）
+  - X-Thread-Id：执行线程ID（默认等于 Conversation；并行/子Agent可派生命名）
+  - X-Trace-Id：链路追踪ID（单请求唯一）
+- 透传机制：
+  - 每个服务入站由 shared-lib/middleware/tenant.py 读取 Header 注入 contextvars，并绑定到 structlog
+  - 出站 HTTP 客户端自动注入四元 Header；如存在用户令牌，将透传 `X-User-Token`
+- 命名建议：
+  - 共享线程：thread_id = conversation_id
+  - 命名空间：thread_id = f"{conversation_id}:{agent_id}"
+  - 并行分叉：thread_id = f"{conversation_id}#{短随机}"
+
+---
+
+## 跨服务字段统一（重要）
+- 请求/响应字段
+  - AgentRunRequest.conversation_id（可选）取代 session_id
+  - AgentRunResponse.conversation_id（必有）
+  - MemoryGetRequest.conversation_id、MemoryAppendRequest.conversation_id
+- 日志字段
+  - 全链路统一记录：tenant_id、conversation_id、thread_id、trace_id
+- 兼容性
+  - 代码已全面切换为 conversation_id；如需兼容旧调用，请在网关层进行字段映射或增加适配层
 ```
 
 ---

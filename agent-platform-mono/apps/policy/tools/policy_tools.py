@@ -2,6 +2,8 @@
 from mcp.server.fastmcp import FastMCP
 from core.tool_service.client.gateway import gateway_client
 from shared.logging.logger import get_logger
+from core.tool_service.skills.base import skill
+from core.tool_service import registry as tool_registry
 
 logger = get_logger(__name__)
 mcp = FastMCP("policy-domain")
@@ -57,3 +59,18 @@ async def list_policies_by_company(
 
 # 该域暴露的 tools 列表，register.py 引用
 policy_tools = []
+
+
+@skill(name="format_policy_id")
+async def _format_policy_id(args: dict) -> dict:
+    pid = str(args.get("policy_id", "")).strip().upper()
+    return {"normalized": pid}
+
+
+@skill(name="mcp_demo_policy_basic")
+async def _mcp_demo_policy_basic(args: dict) -> dict:
+    try:
+        pid = str(args.get("policy_id", "")).strip()
+        return await tool_registry.invoke("mcp:query_policy_basic", {"policy_id": pid})
+    except Exception as e:
+        return {"error": str(e)}

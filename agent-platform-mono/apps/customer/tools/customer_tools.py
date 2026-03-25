@@ -55,7 +55,7 @@ async def search_faq(question: str, top_k: int = 3) -> dict:
 
 
 @mcp.tool()
-async def transfer_to_human(reason: str, session_id: str) -> dict:
+async def transfer_to_human(reason: str, conversation_id: str) -> dict:
     """
     转接人工客服。
     当用户明确要求转人工，或问题超出 Agent 能力范围时调用。
@@ -64,7 +64,7 @@ async def transfer_to_human(reason: str, session_id: str) -> dict:
     try:
         data = await gateway_client.post(
             "/customer-service/api/v1/transfer",
-            body={"reason": reason, "sessionId": session_id},
+            body={"reason": reason, "sessionId": conversation_id},
         )
         return {
             "transferred": True,

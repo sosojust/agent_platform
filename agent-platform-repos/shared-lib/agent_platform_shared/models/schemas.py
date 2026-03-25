@@ -7,12 +7,12 @@ from enum import Enum
 class AgentRunRequest(BaseModel):
     agent_id: str
     input: str
-    session_id: Optional[str] = None
+    conversation_id: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentRunResponse(BaseModel):
-    session_id: str
+    conversation_id: str
     output: str
     steps: list[dict[str, Any]] = Field(default_factory=list)
     usage: dict[str, int] = Field(default_factory=dict)
@@ -44,7 +44,7 @@ class RAGRetrieveResponse(BaseModel):
 
 
 class MemoryGetRequest(BaseModel):
-    session_id: str
+    conversation_id: str
     query: str
     tenant_id: str
 
@@ -54,7 +54,7 @@ class MemoryGetResponse(BaseModel):
 
 
 class MemoryAppendRequest(BaseModel):
-    session_id: str
+    conversation_id: str
     role: str
     content: str
     tenant_id: str

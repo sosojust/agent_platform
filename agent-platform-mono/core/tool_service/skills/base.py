@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Any, Callable, Dict, Optional, Awaitable
-from . import registry
+from core.tool_service.registry import registry
 
 
 def skill(

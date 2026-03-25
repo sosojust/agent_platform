@@ -16,22 +16,29 @@ import pkgutil
 import uuid
 import json
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import AsyncIterator, Any, Dict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
+from pydantic import BaseModel, Field
 
 import apps
 from shared.config.settings import settings
 from shared.config.nacos import init_nacos_config
 from shared.logging.logger import configure_logging, get_logger
-from shared.middleware.tenant import TenantContextMiddleware, get_current_tenant_id
+from shared.middleware.tenant import (
+    TenantContextMiddleware,
+    get_current_tenant_id,
+    set_current_conversation_id,
+    set_current_thread_id,
+)
 from shared.models.schemas import AgentRunRequest, AgentRunResponse
 from shared.fastapi_utils import ReadinessRegistry, make_health_router, register_error_handlers
 from core.agent_engine.agents.registry import registry
 from core.agent_engine.checkpoints.redis_checkpoint import get_checkpointer
 from core.tool_service.client.gateway import gateway_client
+from core.tool_service import registry as tool_registry
 
 configure_logging()
 logger = get_logger(__name__)
@@ -110,6 +117,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     register_customer()
     domain_count = 3
 
+    # 5. 聚合 Tool Service：内部 MCP + 外部 MCP
+    try:
+        from core.tool_service.mcp import MCPServiceClient, ExternalMCPClient
+        await tool_registry.register_mcp_client("mcp", MCPServiceClient())
+        for idx, endpoint in enumerate(settings.external_mcp_endpoints or []):
+            await tool_registry.register_mcp_client(f"ext{idx+1}", ExternalMCPClient(endpoint, token=(settings.external_mcp_token or None)))
+        logger.info("tools_registered", count=len(tool_registry.list_tools()))
+    except Exception as e:
+        logger.error("tool_service_init_failed", error=str(e))
+
     # 所有域注册完成才标记 ready
     if domain_count > 0:
         readiness.mark_ready("apps")
@@ -145,11 +162,49 @@ app.include_router(make_health_router("agent-platform", readiness))
 
 # ── 业务路由 ──────────────────────────────────────────────────
 
+def _require_app_auth(headers: Dict[str, str]) -> str:
+    app_id = headers.get("X-App-Id", "")
+    app_token = headers.get("X-App-Token", "")
+    if not app_id or not app_token:
+        raise HTTPException(status_code=401, detail="missing app auth headers")
+    expected = settings.tool_auth_map.get(app_id)
+    if not expected or expected != app_token:
+        raise HTTPException(status_code=401, detail="invalid app auth")
+    return app_id
+
+
+class ToolInvokeRequest(BaseModel):
+    tool: str = Field(...)
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+
+
+@app.get("/tools", summary="列出可用工具")
+async def list_tools(request: Request) -> list[dict]:
+    _require_app_auth(dict(request.headers))
+    return tool_registry.list_tools()
+
+
+@app.post("/tools/invoke", summary="调用工具")
+async def invoke_tool(req: ToolInvokeRequest, request: Request) -> dict:
+    _require_app_auth(dict(request.headers))
+    try:
+        result = await tool_registry.invoke(req.tool, req.arguments)
+        if isinstance(result, dict):
+            return result
+        return {"result": result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/agent/run", response_model=AgentRunResponse, summary="同步运行 Agent")
 async def run_agent(request: AgentRunRequest) -> AgentRunResponse:
     """同步调用，等待完整响应。适合响应时间 < 10s 的简单查询。"""
     tenant_id = get_current_tenant_id()
-    session_id = request.session_id or str(uuid.uuid4())
+    conversation_id = request.conversation_id or str(uuid.uuid4())
+    set_current_conversation_id(conversation_id)
+    set_current_thread_id(conversation_id)
 
     agent_meta = registry.get(request.agent_id)
     if not agent_meta:
@@ -161,10 +216,10 @@ async def run_agent(request: AgentRunRequest) -> AgentRunResponse:
 
     agent = agent_meta.factory()
     checkpointer = await get_checkpointer()
-    config = {"configurable": {"thread_id": session_id, "checkpointer": checkpointer}}
+    config = {"configurable": {"thread_id": conversation_id, "checkpointer": checkpointer}}
     initial_state = {
         "messages": [HumanMessage(content=request.input)],
-        "session_id": session_id, "tenant_id": tenant_id,
+        "conversation_id": conversation_id, "tenant_id": tenant_id,
         "memory_context": "", "rag_context": "", "step_count": 0,
     }
 
@@ -172,8 +227,8 @@ async def run_agent(request: AgentRunRequest) -> AgentRunResponse:
         result = await agent.ainvoke(initial_state, config=config)
         output = str(result["messages"][-1].content)
         logger.info("agent_run_complete", agent_id=request.agent_id,
-                    session_id=session_id, steps=result["step_count"])
-        return AgentRunResponse(session_id=session_id, output=output,
+                    conversation_id=conversation_id, steps=result["step_count"])
+        return AgentRunResponse(conversation_id=conversation_id, output=output,
                                 steps=[{"step_count": result["step_count"]}])
     except Exception as e:
         logger.error("agent_run_failed", agent_id=request.agent_id, error=str(e))
@@ -184,7 +239,9 @@ async def run_agent(request: AgentRunRequest) -> AgentRunResponse:
 async def stream_agent(request: AgentRunRequest) -> StreamingResponse:
     """SSE 流式输出，事件类型：token | step_start | step_end | done | error"""
     tenant_id = get_current_tenant_id()
-    session_id = request.session_id or str(uuid.uuid4())
+    conversation_id = request.conversation_id or str(uuid.uuid4())
+    set_current_conversation_id(conversation_id)
+    set_current_thread_id(conversation_id)
 
     agent_meta = registry.get(request.agent_id)
     if not agent_meta:
@@ -193,10 +250,10 @@ async def stream_agent(request: AgentRunRequest) -> StreamingResponse:
 
     agent = agent_meta.factory()
     checkpointer = await get_checkpointer()
-    config = {"configurable": {"thread_id": session_id, "checkpointer": checkpointer}}
+    config = {"configurable": {"thread_id": conversation_id, "checkpointer": checkpointer}}
     initial_state = {
         "messages": [HumanMessage(content=request.input)],
-        "session_id": session_id, "tenant_id": tenant_id,
+        "conversation_id": conversation_id, "tenant_id": tenant_id,
         "memory_context": "", "rag_context": "", "step_count": 0,
     }
 

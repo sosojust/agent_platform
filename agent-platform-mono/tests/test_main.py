@@ -44,7 +44,7 @@ async def test_run_unknown_agent(client: AsyncClient):
     assert resp.status_code == 404
 
 
-async def test_run_agent_returns_session_id(client: AsyncClient, monkeypatch):
+async def test_run_agent_returns_conversation_id(client: AsyncClient, monkeypatch):
     from unittest.mock import AsyncMock
 
     # Create mock objects to replace registry.get and its return value
@@ -66,4 +66,4 @@ async def test_run_agent_returns_session_id(client: AsyncClient, monkeypatch):
         "input": "查询保单 P2024001",
     })
     assert resp.status_code == 200
-    assert "session_id" in resp.json()
+    assert "conversation_id" in resp.json()

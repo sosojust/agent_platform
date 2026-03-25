@@ -30,7 +30,7 @@ logger = get_logger(__name__)
 
 class BaseAgentState(TypedDict):
     messages: Annotated[list[BaseMessage], operator.add]
-    session_id: str
+    conversation_id: str
     tenant_id: str
     memory_context: str
     rag_context: str
@@ -94,7 +94,7 @@ def build_agent(
             (m.content for m in reversed(state["messages"]) if isinstance(m, HumanMessage)), ""
         )
         context = await memory_rag_client.get_memory_context(
-            session_id=state["session_id"],
+            conversation_id=state["conversation_id"],
             query=str(last_input),
             tenant_id=state["tenant_id"],
         )
@@ -114,7 +114,7 @@ def build_agent(
 
     async def llm_reason(state: BaseAgentState) -> dict:
         if state["step_count"] >= max_steps:
-            logger.warning("max_steps_reached", session_id=state["session_id"])
+            logger.warning("max_steps_reached", conversation_id=state["conversation_id"])
             return {"messages": [], "step_count": state["step_count"]}
 
         # 拉取 system prompt（从 ai-core-service）
@@ -137,7 +137,7 @@ def build_agent(
         for msg in state["messages"][-2:]:
             role = "user" if isinstance(msg, HumanMessage) else "assistant"
             await memory_rag_client.append_memory(
-                session_id=state["session_id"],
+                conversation_id=state["conversation_id"],
                 role=role,
                 content=str(msg.content),
                 tenant_id=state["tenant_id"],

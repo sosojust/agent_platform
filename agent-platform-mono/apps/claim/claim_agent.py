@@ -38,7 +38,7 @@ logger = get_logger(__name__)
 
 class ClaimAgentState(TypedDict):
     messages: Annotated[list[BaseMessage], operator.add]
-    session_id: str
+    conversation_id: str
     tenant_id: str
     memory_context: str
     rag_context: str
@@ -60,7 +60,7 @@ async def doc_verify(state: ClaimAgentState) -> dict:
     missing = [doc for doc in required_docs if doc not in content]
 
     if missing:
-        logger.info("doc_verify_missing", missing=missing, session_id=state["session_id"])
+        logger.info("doc_verify_missing", missing=missing, conversation_id=state["conversation_id"])
         return {"doc_verified": False, "missing_docs": missing}
 
     return {"doc_verified": True, "missing_docs": []}

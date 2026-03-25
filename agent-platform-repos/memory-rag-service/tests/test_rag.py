@@ -36,7 +36,7 @@ async def test_memory_append_and_get(client):
     with patch("memory.manager.memory_manager.append_short_term",
                new=AsyncMock(return_value=None)):
         resp = await client.post("/memory/append", json={
-            "session_id": "sess_001",
+            "conversation_id": "conv_001",
             "role": "user",
             "content": "我想查询保单状态",
             "tenant_id": "test_tenant",
@@ -46,7 +46,7 @@ async def test_memory_append_and_get(client):
     with patch("memory.manager.memory_manager.build_memory_context",
                new=AsyncMock(return_value="【本次对话】\nuser: 我想查询保单状态")):
         resp = await client.post("/memory/get-context", json={
-            "session_id": "sess_001",
+            "conversation_id": "conv_001",
             "query": "保单状态",
             "tenant_id": "test_tenant",
         })
