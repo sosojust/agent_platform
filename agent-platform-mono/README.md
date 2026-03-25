@@ -147,6 +147,10 @@ agent-platform/
 | 文件 | 职责 |
 |------|------|
 | `client/gateway.py` | httpx 异步客户端，自动注入 tenant header，tenacity 重试，统一错误日志 |
+| `registry.py` | 统一工具注册表，聚合 Skill 与 MCP，两类工具统一暴露与调用 |
+| `mcp/service_client.py` | 内部 MCP 服务客户端（对接 mcp-service 的 /tools 与 /invoke） |
+| `mcp/external_client.py` | 外部 MCP 提供者客户端，基于 HTTP 注册外部工具 |
+| `skills/base.py` | Skill 装饰器，注册本地可执行工具，并纳入统一注册表 |
 
 ### core/agent_engine/ — 编排框架层
 只关心"LangGraph 的基础结构"，不关心具体业务流程。
