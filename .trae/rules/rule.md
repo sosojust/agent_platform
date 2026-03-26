@@ -33,6 +33,7 @@
 - 合同：apps 注册必须提供 `factory() -> Graph`，并注入 `checkpointer/thread_id`
 - 基础工作流：优先复用 `base_agent` 与标准节点（记忆→RAG→推理→工具→记忆）
 - 观测：日志统一使用 `shared/logging` 输出 JSON，绑定 `tenant_id/trace_id/conversation_id/thread_id`
+- ToolRouter：工具选择策略实现于 `agent_engine` 层；apps 只提供候选集合与元数据（`name/description/keywords/tool`），最终工具列表在构建 Graph 前选择并注入
 
 ## 就绪与发布
 - 冷启动预热：Embedding/Rerank 模型预热完成后设置 `models`；Prompts 与 RAG 分项检查通过后才对外 /ready=200
