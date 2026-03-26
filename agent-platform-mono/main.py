@@ -78,6 +78,51 @@ async def _check_qdrant() -> bool:
     except Exception:
         return False
 
+async def _check_prompts() -> bool:
+    try:
+        from core.ai_core.prompt.manager import prompt_manager
+        _ = prompt_manager.get("policy_agent_system", {"tenant_id": "ready_check"})
+        return True
+    except Exception:
+        return False
+
+async def _check_rag() -> bool:
+    try:
+        from core.memory_rag.embedding.service import embedding_service
+        from core.memory_rag.vector.store import vector_store
+        embedding_service.embed(["ready"])
+        vector_store.list_collections()
+        return True
+    except Exception:
+        return False
+
+async def _check_rerank_available() -> bool:
+    try:
+        from core.memory_rag.rerank.service import rerank_service
+        return getattr(rerank_service, "_model", None) is not None
+    except Exception:
+        return False
+
+async def _check_prompts_source_langfuse() -> bool:
+    try:
+        from core.ai_core.prompt.provider import LangfusePromptProvider
+        host = getattr(settings.observability, "langfuse_host", "")
+        public_key = getattr(settings.observability, "langfuse_public_key", "")
+        secret_key = getattr(settings.observability, "langfuse_secret_key", "")
+        if not host or not public_key or not secret_key:
+            return False
+        provider = LangfusePromptProvider(host, public_key, secret_key)
+        p = provider.get_prompt("policy_agent_system")
+        return p is not None and len(str(p)) > 0
+    except Exception:
+        return False
+
+async def _check_rag_backend_qdrant() -> bool:
+    try:
+        backend = getattr(settings.vector_db, "backend", "")
+        return str(backend).lower() == "qdrant"
+    except Exception:
+        return False
 
 # ── Lifespan ──────────────────────────────────────────────────
 
@@ -106,6 +151,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     readiness.register_check("redis", _check_redis)
     readiness.register_check("milvus", _check_milvus)
     readiness.register_check("qdrant", _check_qdrant)
+    readiness.register_check("prompts_ready", _check_prompts)
+    readiness.register_check("prompts_source_langfuse", _check_prompts_source_langfuse)
+    readiness.register_check("rag_ready", _check_rag)
+    readiness.register_check("rag_backend_qdrant", _check_rag_backend_qdrant)
+    readiness.register_check("rerank_available", _check_rerank_available)
 
     # 4. 注册所有业务域的 Agent
     from apps.policy.register import register as register_policy

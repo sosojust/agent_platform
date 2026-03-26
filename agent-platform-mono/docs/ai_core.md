@@ -13,17 +13,31 @@
 - 模型路由（simple/complex/local 等；可扩展）
 - 观测与降级（日志、埋点、开关、fallback）
 
+### 防腐层（ACL）
+- 统一接口：
+  - `PromptProvider.get(name, version?) -> str|None`
+- 适配器：
+  - `LangfusePromptProvider`、`LocalFilePromptProvider`
+- 管理器：
+  - `PromptManager` 组合多个 Provider，按顺序尝试，成功即返回并缓存
+  - 上游仅使用 `prompt_manager.get(name, variables, version)`
+
+### 层级防腐总则
+- 上层使用边界：apps/workflows 仅调用 `llm_client`、`prompt_manager`、`routing` 暴露的稳定接口，不直接操作第三方 SDK。
+- 下层依赖隔离：所有第三方 SDK（OpenAI/Anthropic/Langfuse 等）只出现在 Provider/Manager 内部；禁止在上层直接 import。
+- 签名与语义稳定：接口不随 SDK 升级改变；错误码、用量（tokens）与超时统一归一化。
+- 可插拔与降级：主提供者不可用时切换备提供者或本地实现；stream 异常可降级为非流式；Prompt 拉取失败使用本地兜底。
+- 配置治理：模型、路由、鉴权与超时在 `settings.*` 中集中管理；支持 Nacos 动态下发与灰度。
+- 观测与就绪：关键路径统一打点；/ready 暴露 prompts_ready 与 LLM 相关健康项，便于发布与回滚决策。
 ## 模块与提供方式
 
 ### 1) LLM 客户端
 - 位置：`core/ai_core/llm/client.py`
 - 能力：
-  - `complete(messages: list[dict]|str, model?: str, temperature?: float, timeout?: float, **kwargs) -> str`
-  - `stream(messages: list[dict], model?: str, **kwargs) -> AsyncIterator[str]`
   - 支持 OpenAI/Anthropic/本地模型（settings.llm 配置）
   - 内建：超时、重试（幂等请求）、错误码归一化
 - 提供方式：
-  - 在 workflow 或服务（如 ai-core-service）中直接使用
+  - 在 workflow 中通过 `llm_client.get_chat(tools, task_type)` 获取绑定工具的推理实例
 
 #### 防腐层（ACL）设计（LLM 提供者适配）
 - 稳定接口：
@@ -42,7 +56,7 @@
 ### 2) Prompt 管理
 - 位置：`core/ai_core/prompt/manager.py`
 - 能力：
-  - `get_prompt(name: str, variables: dict) -> str`
+  - `get(name: str, variables?: dict, version?: str) -> str`
   - 优先从 Langfuse 拉取指定版本；失败时使用本地 fallback
   - 变量渲染（Jinja2/简单模板器），支持默认变量（tenant_id 等）
   - 本地缓存（内存/可选持久）
@@ -80,6 +94,13 @@
   - streaming 出错 → 降级为非流式
   - Prompt 拉取失败 → 使用本地 fallback
 
+### 就绪与来源可见性
+- /ready 探针：
+  - `prompts_ready`：模板可获取并渲染
+  - `models`：Embedding/Rerank 模型预热完成
+- 来源可见性：
+  - `prompts_source_langfuse`：为 true 表示当前 Prompt 来源为 Langfuse；为 false 表示使用本地兜底
+
 ## 层级稳定与依赖防腐（总则）
 - 对外稳定：
   - ai_core 对上层仅暴露 `complete/stream` 与 `get_prompt/select_model` 四个稳定入口
@@ -94,13 +115,13 @@
 
 ## 示例调用
 ```python
+from core.ai_core.prompt.manager import prompt_manager
 from core.ai_core.llm.client import llm_client
-from core.ai_core.prompt.manager import get_prompt
-from core.ai_core.routing.router import select_model
 
-sys_prompt = get_prompt("policy.qa.system", {"tenant_id": tenant_id})
+sys_prompt = prompt_manager.get("policy_agent_system", {"tenant_id": tenant_id})
 messages = [{"role": "system", "content": sys_prompt},
             {"role": "user", "content": question}]
-model = select_model("simple", {"latency": "low"})
-text = await llm_client.complete(messages, model=model, temperature=0.2)
+llm = llm_client.get_chat(tools=[], task_type="simple")
+resp = await llm.ainvoke(messages)
+text = resp.content
 ```

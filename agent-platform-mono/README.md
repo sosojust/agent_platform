@@ -129,6 +129,7 @@ agent-platform/
 | `llm/provider.py` | LLM Provider 接口骨架（complete/stream），统一屏蔽下层 SDK 差异 |
 | `prompt/manager.py` | 从 Langfuse 拉取版本化 Prompt，降级时用本地 fallback |
 | `routing/router.py` | 按 task_type 选模型：simple→小模型省钱，complex→强模型，local→敏感数据不出网 |
+| `embedding/provider.py` | Embedding Provider 抽象与默认实现（SentenceTransformer），配置化模型与设备 |
 
 ### core/memory_rag/ — 数据智能层
 只关心"怎么存取记忆和知识"，不关心"哪个业务用"。
@@ -215,3 +216,18 @@ mkdir -p apps/underwriting/{tools,prompts}
 # 3. 重启服务，框架自动发现并注册
 # 无需修改 main.py 或任何框架层代码
 ```
+
+---
+
+## 变更记录
+
+- 2026-03-26
+  - 新增 `core/ai_core/embedding/provider.py`，提供统一 Embedding Provider 抽象与默认实现（SentenceTransformer），通过 `settings.embedding.embedding_model` 与 `settings.embedding.device` 配置
+  - 新增 `core/memory_rag/embedding/service.py`，懒加载本地 embedding 模型，供主入口与 RAG 使用
+  - 新增 `core/memory_rag/rerank/service.py`，集成 FlagEmbedding 精排；若未安装依赖则优雅降级为原顺序截取 top_k
+  - `main.py` 启动 lifespan 中预热 embedding/rerank 模型，提升就绪检查稳定性
+  - 依赖与配置：`sentence-transformers`、`FlagEmbedding`；环境变量 `EMBEDDING_MODEL`、`RERANK_MODEL`、`EMBEDDING_DEVICE`
+  - 新增 `core/ai_core/prompt/manager.py`，Prompt 版本化管理（Langfuse 优先、本地兜底），支持变量插值与缓存
+  - 新增 `core/memory_rag/vector/store.py`（Qdrant 实现），打通最小 RAG 闭环（召回→精排），collection 命名 `tenant_type`
+  - 新增 `core/memory_rag/memory/manager.py`，Redis 短期记忆（窗口裁剪），与基础编排集成
+  - 新增 `core/ai_core/prompt/provider.py`，抽象 PromptProvider ACL（Langfuse/LocalFile），`PromptManager` 采用 Provider 链组合

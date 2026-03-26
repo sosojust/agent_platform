@@ -27,13 +27,22 @@
 - 接入方式：
   - 由检索管线自动调用，apps 无需直接使用
 
+#### Embedding 核心职责
+- 作为数据智能层的“向量化入口”，将文本与查询编码为同一向量空间的向量，服务检索与入库两条主链路
+- 复用 ai_core 的 EmbeddingProvider（默认 SentenceTransformer），屏蔽具体模型与设备细节，集中配置于 `settings.embedding`
+- 保证一致性：文档入库向量与查询向量由同一 Provider 产生，避免空间不一致导致召回偏差
+- 工程化保障：懒加载初始化降低冷启动阻塞；批量编码提升吞吐；错误时返回清晰异常，便于探针与告警
+- 使用边界：
+  - 检索：`rag/pipeline.py` 在 recall 前调用 `embedding_service.embed([query])`
+  - 入库：`vector/store.py` 在 `add_texts/upsert` 缺省向量时调用 `embedding_service.embed(texts)`
+
 ### 2) 向量库抽象
 - 位置：`core/memory_rag/vector/store.py`
 - 能力：
   - add_texts(texts, metadatas, collection)
   - search(query_vector, filters, top_k, collection)
   - delete/upsert/by_ids
-  - 后端：Milvus/Qdrant（由 settings.vector_db.backend 决定）
+  - 当前实现：Qdrant（由 `settings.vector_db.backend` 选择；目前阶段优先 Qdrant）
 - 提供方式：
   - 对 pipeline 公开，apps 不直接调用
 
@@ -84,12 +93,12 @@
 ### 4) Filter DSL
 - 目标：上层声明过滤意图，底层负责翻译为向量库查询。
 - 支持：
-  - 基本操作：`=`, `!=`, `IN`, `PREFIX`, `EXISTS`
+  - 基本操作：`=`, `IN`（示例阶段不支持，建议用多个 EQ 组合），`EXISTS`（示例阶段不支持）
   - 范围：`RANGE(field, min, max)`、`TIME_RANGE(field, from, to)`
   - 组合：`AND([...])`, `OR([...])`, `NOT(expr)`
   - 强制注入：`tenant_id`、`collection`（`{tenant}_{domain}_{type}`）
 - 提供方式：
-  - `core/memory_rag/rag/filters.py`（建议）：定义表达式与翻译器
+  - `core/memory_rag/rag/filters.py`：定义表达式与翻译器（当前阶段实现 EQ/AND，白名单校验）
   - pipeline 接收 Filter DSL，并在底层翻译
 
 #### Filter DSL 规范（提案）
@@ -121,6 +130,7 @@
 - 翻译器接口：
   - `translate(filter_ast) -> BackendQuery`（不同后端返回不同查询对象/结构）
 - 翻译策略：
+  - 翻译逻辑在 VectorStore 适配器层执行（如 Qdrant/Milvus 的各自翻译器）；pipeline 仅构造通用 Filter DSL，不直接依赖具体后端
   - 尽可能使用后端原生过滤；不支持的操作降级为客户端过滤（仅在结果集较小且可控时）
   - 时间字段统一转为 UTC 存储与查询
   - 字段命名统一使用 `snake_case` 或 `camelCase`，由翻译器做映射
@@ -146,7 +156,7 @@
   - pipeline 接受 `RetrievalPlan` 并按阶段执行
 
 ### 6) RAG Pipeline（统一检索入口）
-- 位置：`core/memory_rag/rag/pipeline.py`（建议）
+- 位置：`core/memory_rag/rag/pipeline.py`
 - 能力：
   - `retrieve(query, tenant_id, config: MemoryConfig, plan: RetrievalPlan | None, filters: Filter | None)`
   - 链路：`pre_rewrite -> recall(dense/keyword/hybrid) -> fusion -> rerank -> postprocess`
@@ -194,7 +204,17 @@
 
 ---
 
-后续迭代建议：
-1. 落地 Filter DSL 与 RetrievalPlan 的数据结构与最小可用实现
-2. 完成 rag/pipeline 骨架与阶段指标上报
-3. 在 apps/policy 与 apps/claim 各提供一份默认计划与过滤模板示例
+当前阶段落地情况：
+1. Qdrant 向量库实现完成，支持 `create_collection`/`add_texts`/`upsert`/`search`/`delete`/`by_ids`/`list_collections`
+2. 最小 RAG 闭环：`embedding -> qdrant recall -> rerank` 已打通（`rag/pipeline.py`）
+3. Redis 短期记忆实现完成，`memory/manager.py` 与基础编排集成
+4. 后续将迭代 Filter DSL、RetrievalPlan、指标上报与 Milvus 适配器
+
+### 层级防腐总则
+- 上层使用边界：apps/workflows 仅调用 `embedding_service`、`rag_pipeline`、`VectorStoreAdapter` 暴露的稳定接口；禁止直接依赖具体后端（Qdrant/Milvus）。
+- 后端适配隔离：Filter DSL 的翻译在 VectorStore 适配器层完成；pipeline 只构造通用 DSL 与检索参数。
+- 一致性保障：向量生成统一走 `embedding_service`（复用 ai_core Provider），确保查询与入库向量位于同一空间。
+- 可插拔与降级：向量库后端可替换；Rerank 未加载时降级为顺序截取；召回失败返回空并记录可观测事件。
+- 元数据与安全：强制注入 `tenant_id` 过滤；Metadata 字段白名单与类型校验在适配器层执行。
+- 观测与就绪：/ready 暴露 `rag_ready` 与 `rerank_available`；检索链路关键阶段打点与日志穿透（tenant_id/trace_id）。
+ - 来源可见性：`rag_backend_qdrant` 为 true 表示当前后端为 Qdrant（来源于 `settings.vector_db.backend`）

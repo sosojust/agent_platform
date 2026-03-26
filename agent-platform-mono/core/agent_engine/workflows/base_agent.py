@@ -9,13 +9,12 @@ import operator
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from core.ai_core.llm.client import llm_client
 
 from core.memory_rag.memory.config import MemoryConfig, DEFAULT_MEMORY_CONFIG
-# from core.memory_rag.memory.manager import memory_manager
-# from core.memory_rag.rag.pipeline import rag_pipeline
-# from core.ai_core.llm.client import llm_client
-# from core.ai_core.prompt.manager import prompt_manager
+from core.memory_rag.memory.manager import memory_manager
+from core.memory_rag.rag.pipeline import rag_pipeline
+from core.ai_core.prompt.manager import prompt_manager
 from shared.config.settings import settings
 from shared.logging.logger import get_logger
 
@@ -69,11 +68,7 @@ def make_retrieve_rag_node(cfg: MemoryConfig):
 
 
 def make_llm_reason_node(tools: list, system_prompt_key: str, cfg: MemoryConfig):
-    llm = ChatOpenAI(
-        model=settings.llm.strong_model.replace("openai/", ""),
-        api_key=settings.llm.openai_api_key,
-        streaming=True,
-    ).bind_tools(tools)
+    llm = llm_client.get_chat(tools, task_type="complex")
 
     async def llm_reason(state: BaseAgentState) -> dict:
         if state["step_count"] >= cfg.max_steps:
