@@ -117,7 +117,7 @@ agent-platform/
 | `config/settings.py` | pydantic-settings 统一管理所有环境变量，启动时校验，缺少必填项直接报错 |
 | `config/nacos.py` | 接入 Nacos，热更新动态参数（模型路由策略、RAG 阈值、功能开关等） |
 | `logging/logger.py` | structlog，输出 JSON，自动携带 tenant_id / trace_id，生产日志直接采集 |
-| `middleware/tenant.py` | 从 X-Tenant-Id Header 提取租户信息，写入 contextvars，全链路可读 |
+| `middleware/tenant.py` | 从 Header 提取四元：X-Tenant-Id / X-Conversation-Id / X-Thread-Id / X-Trace-Id（可选 X-User-Token），写入 contextvars 并绑定日志 |
 | `models/schemas.py` | AgentRunRequest / AgentRunResponse / StreamEvent 等跨层公用模型 |
 
 ### core/ai_core/ — AI 能力层
@@ -126,6 +126,7 @@ agent-platform/
 | 文件 | 职责 |
 |------|------|
 | `llm/client.py` | LiteLLM 封装，支持 OpenAI / Anthropic / 本地模型，自动上报 Langfuse |
+| `llm/provider.py` | LLM Provider 接口骨架（complete/stream），统一屏蔽下层 SDK 差异 |
 | `prompt/manager.py` | 从 Langfuse 拉取版本化 Prompt，降级时用本地 fallback |
 | `routing/router.py` | 按 task_type 选模型：simple→小模型省钱，complex→强模型，local→敏感数据不出网 |
 
@@ -136,6 +137,7 @@ agent-platform/
 |------|------|
 | `embedding/service.py` | bge-m3 本地推理单例，懒加载，批量 encode |
 | `rerank/service.py` | bge-reranker 本地精排，召回 top-20 → 精排 top-5 |
+| `vector/acl.py` | 向量库适配器接口骨架（create_collection/upsert/search 等），屏蔽后端差异 |
 | `vector/store.py` | Milvus 操作，collection 按 `{tenant_id}_{type}` 命名隔离 |
 | `memory/manager.py` | 短期记忆(Redis TTL) + 长期记忆(mem0自动压缩) |
 | `memory/config.py` | MemoryConfig 数据类，各域覆盖 top_k / 阈值 / 是否启用长期记忆 |
@@ -150,6 +152,7 @@ agent-platform/
 | `registry.py` | 统一工具注册表，聚合 Skill 与 MCP，两类工具统一暴露与调用 |
 | `mcp/service_client.py` | 内部 MCP 服务客户端（对接 mcp-service 的 /tools 与 /invoke） |
 | `mcp/external_client.py` | 外部 MCP 提供者客户端，基于 HTTP 注册外部工具 |
+| `mcp/base.py` | MCP 客户端接口骨架（list_tools/invoke），统一外部/内部差异 |
 | `skills/base.py` | Skill 装饰器，注册本地可执行工具，并纳入统一注册表 |
 
 ### core/agent_engine/ — 编排框架层

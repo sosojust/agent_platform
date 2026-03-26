@@ -25,6 +25,20 @@
 - 提供方式：
   - 在 workflow 或服务（如 ai-core-service）中直接使用
 
+#### 防腐层（ACL）设计（LLM 提供者适配）
+- 稳定接口：
+  - `class ILLMProvider`（示意）
+    - `complete(messages, **kwargs) -> (text: str, usage: dict)`
+    - `stream(messages, **kwargs) -> AsyncIterator[str]`
+  - 由 `llm/client.py` 统一选择并调用，不暴露下层 SDK 差异
+- 适配器实现：
+  - `OpenAIProvider(ILLMProvider)`、`AnthropicProvider(ILLMProvider)`、`LocalProvider(ILLMProvider)`
+  - 统一错误与用量字段规范（error_code、finish_reason、tokens）
+- 行为规范：
+  - 幂等重试仅针对 `complete`，`stream` 发生错误时降级为 `complete` 或提前结束
+  - 统一消息格式：`{"role": "system|user|assistant", "content": "..."}`
+  - 统一超时与代理设置，禁止在应用层直接操作 SDK 配置
+
 ### 2) Prompt 管理
 - 位置：`core/ai_core/prompt/manager.py`
 - 能力：
@@ -34,6 +48,10 @@
   - 本地缓存（内存/可选持久）
 - 提供方式：
   - 在构造 messages 前调用，返回最终可用的 prompt 文本
+
+#### 防腐层要点
+- 与 Langfuse/第三方存储交互统一封装在 `prompt/manager.py`，上游仅依赖 `get_prompt(name, variables)`
+- 失败与超时策略统一由管理器处理，避免上游直接感知第三方 API 差异
 
 ### 3) 模型路由
 - 位置：`core/ai_core/routing/router.py`
@@ -47,6 +65,10 @@
 - 提供方式：
   - workflow 中按任务类型选路由，传入到 LLM 客户端
 
+#### 防腐层要点
+- 路由策略与模型标识与下层 SDK 解耦；内部维护“策略名 → 模型名/提供者”的映射
+- 允许热更新路由配置（Nacos），不影响上游调用签名
+
 ## 配置与治理
 - 配置入口：`shared/config/settings.py` 下的 `LLMSettings`
   - `LLM_DEFAULT_MODEL`, `LLM_STRONG_MODEL`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `LOCAL_MODEL_BASE_URL`
@@ -57,6 +79,14 @@
   - 主提供商不可用 → 切换备提供商/本地模型
   - streaming 出错 → 降级为非流式
   - Prompt 拉取失败 → 使用本地 fallback
+
+## 层级稳定与依赖防腐（总则）
+- 对外稳定：
+  - ai_core 对上层仅暴露 `complete/stream` 与 `get_prompt/select_model` 四个稳定入口
+  - 不随 SDK 升级改变签名与语义
+- 对内防腐：
+  - 第三方 SDK 全部隐藏在 Provider/Manager 内部；统一错误、用量与日志字段
+  - 任何替换（新 SDK/新接口）只需更新适配器，不影响上游
 
 ## apps 使用边界
 - apps/ 或 workflow 只描述“任务类型/约束/变量”

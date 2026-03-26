@@ -80,6 +80,20 @@
 - 工具层默认透传该 Token 到网关，建议在业务系统侧验证；
 - 可按 App-Id + 用户 Token 组合做更细粒度的权限和配额控制。
 
+## 依赖防腐层（ACL）设计
+- 稳定接口：
+  - 注册表对外提供稳定的 `list_tools/invoke`，不暴露下游实现差异
+  - MCP 客户端统一接口（示意）：`list_tools() -> list[dict]`、`invoke(tool_name, args) -> Any`
+- 适配器：
+  - 内部 mcp-service 适配器：HTTP schema 与调用约定封装在 `service_client.py`
+  - 外部 MCP 适配器：`external_client.py` 负责外部协议差异（认证/超时/错误码）
+  - 业务网关适配器：`client/gateway.py` 统一 header/重试/观测，屏蔽下游差异
+- 规范化：
+  - 输入/输出 schema 在工具注册阶段校验与归一化（字段类型、必填项）
+  - 错误归一化：统一错误码与 message，确保上游只处理稳定错误语义
+- 变更与替换：
+  - 新的 MCP 提供者仅需实现同名接口并注册即可，不影响 apps
+  - 下游网关协议变更只更新适配器，不影响工具调用层
 ## apps 使用边界
 - apps 可以：
   - 使用 `@skill` 暴露本地能力

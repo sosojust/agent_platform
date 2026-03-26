@@ -103,6 +103,21 @@
   - 通过合规校验（合同、工具与检查点接入、观测规范）
   - 补充用例覆盖：最小成功/常见错误/checkpoint 恢复
 
+## 层级稳定与依赖防腐（总则）
+- 对外稳定（每层对上暴露稳定接口）：
+  - agent_engine：注册/获取/运行 Graph 的稳定入口（factory、run/stream）
+  - tool_service：`list_tools/invoke` 与统一鉴权
+  - ai_core：`complete/stream` 与 `get_prompt/select_model`
+  - memory_rag：`retrieve` 与 `get_context/append_*`
+- 对内防腐（每层对下封装依赖差异）：
+  - agent_engine：节点内部不直连外部系统，工具调用统一走 tool_service
+  - tool_service：外部 MCP 与业务网关由适配器封装（协议/认证/错误归一）
+  - ai_core：LLM Provider 适配器（SDK/模型差异屏蔽、错误与用量归一）
+  - memory_rag：VectorStore 适配器（后端差异屏蔽、Filter 翻译）
+- 演进与替换：
+  - 新 SDK/新后端通过实现适配器接口即可替换；上层调用签名不变
+  - 统一在适配层处理：重试/降级/观测/安全校验
+
 ## 最佳实践与雷区清单
 - 建议
   - 优先复用 base_agent 与标准节点；通过 `MemoryConfig`/`RetrievalPlan`/工具清单调参
