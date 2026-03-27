@@ -241,6 +241,16 @@ mkdir -p apps/underwriting/{tools,prompts}
   - `main.py` 的 `/agent/run` 与 `/agent/stream` 已接入统一编排工厂，返回结果附带模式信息
   - 新增测试：`test_mode_selector.py`、`test_orchestrator_factory.py`
   - `core/agent_engine/tools/router.py` 的 LLM 工具选择提示词接入 `PromptManager`，并增加本地模板 `tool_router_select_sys.txt`、`tool_router_select_user.txt`
+  - 明确 `memory_rag` 中 Memory 层职责边界，并新增任务文档 `docs/memory-最小可落地改造任务清单.md` 维护最小可落地改造清单
+  - `MemoryConfig` 新增最小改造配置：`memory_noise_filter_enabled`、`short_to_long_trigger_turns`、`long_term_retrieve_top_k`、`memory_types_default`
+  - `memory/manager.py` 新增写入治理能力：空白/短噪声过滤、常见寒暄过滤、同角色最近窗口去重，并增加过滤原因日志字段
+  - 新增单元测试 `tests/memory/test_manager.py`，覆盖废话过滤、重复写入去重、关闭过滤开关后的兼容行为
+  - `memory/manager.py` 新增长期记忆能力：`append_long_term`、`retrieve_long_term`、`consolidate_short_to_long`，并在短期记忆达到阈值时自动触发 consolidate
+  - `build_memory_context` 支持短期 + 长期聚合上下文；`filters.py` 扩展 memory 相关字段白名单（`memory_type`、`conversation_id`、`role`、`timestamp`）
+  - 新增测试覆盖：短期触发 consolidate、上下文聚合长期片段
+  - 对齐 Memory 职责基线：补充写入/读取/异步/治理四条链路定义，明确 `profile/claim/plan` 属于长期记忆分类标签与过滤策略，不是独立记忆层级
+  - 更新最小改造任务清单：补充滚动摘要写入、读取时间衰减、与 RAG 融合占比、异步压缩清理等未完成项
+  - 细化 M3 任务拆分：为 T1~T8 增加接口改动点、配置项、测试用例建议与验收命令（仅文档规划，未改代码）
 
 - 2026-03-26
   - 新增 `core/ai_core/embedding/provider.py`，提供统一 Embedding Provider 抽象与默认实现（SentenceTransformer），通过 `settings.embedding.embedding_model` 与 `settings.embedding.device` 配置

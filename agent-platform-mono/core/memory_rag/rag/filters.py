@@ -5,6 +5,10 @@ from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 ALLOWED_FIELDS = {
     "tenant_id",
+    "memory_type",
+    "conversation_id",
+    "role",
+    "timestamp",
     "policyId",
     "claimStatus",
     "companyId",
@@ -37,8 +41,8 @@ def _translate_atom(ast: Dict[str, Any]) -> Tuple[str, List[FieldCondition]]:
 def build_qdrant_filter(filter_ast: Dict[str, Any] | None) -> Filter | None:
     if not filter_ast:
         return None
-    must: List[FieldCondition] = []
-    should: List[FieldCondition] = []
+    must: List[Any] = []
+    should: List[Any] = []
     if "AND" in filter_ast:
         items = filter_ast["AND"]
         for it in items:
