@@ -163,7 +163,7 @@ agent-platform/
 |------|------|
 | `agents/registry.py` | AgentMeta 注册表，启动时由各域 register.py 填充，运行时按 agent_id 查找 |
 | `workflows/base_agent.py` | 可复用的基础 Graph（记忆拉取→RAG→推理→工具→记忆写回），各域继承后扩展节点 |
-| `checkpoints/redis_checkpoint.py` | Redis Saver，支持 Human-in-the-loop 和中断恢复 |
+| `checkpoints/redis_checkpoint.py` | Checkpoint 后端选择（Memory/Redis 可配置），支持 Human-in-the-loop 和中断恢复 |
 
 ### apps/ — 业务域层
 **新增业务场景只需要在这里加目录，框架层不动。**
@@ -188,6 +188,9 @@ pip install -e ".[dev]"
 
 # 3. 配置环境变量
 cp .env.example .env
+# （可选）根据环境切换检查点后端：
+# CHECKPOINT_BACKEND=memory            # 开发/测试
+# CHECKPOINT_BACKEND=redis             # 生产，需配合 REDIS_URL 与 CHECKPOINT_TTL
 
 # 4. 启动服务
 uvicorn main:app --reload --port 8000

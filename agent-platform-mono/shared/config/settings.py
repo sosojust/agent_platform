@@ -69,6 +69,7 @@ class AppSettings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     host: str = Field(default="0.0.0.0", alias="HOST")
     port: int = Field(default=8000, alias="PORT")
+    checkpoint_backend: str = Field(default="memory", alias="CHECKPOINT_BACKEND")
     mcp_service_url: str = "http://localhost:8004"
     internal_gateway_url: str = "http://localhost:8000"
     gateway_timeout: int = 30

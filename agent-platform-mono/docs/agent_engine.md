@@ -45,6 +45,10 @@
 - 提供方式：
   - 在运行时通过 `get_checkpointer()` 获取并设置到 graph 配置中
 - `config = {"configurable": {"thread_id": conversation_id, "checkpointer": ...}}`
+- 配置：
+  - `CHECKPOINT_BACKEND=memory|redis`（默认 `memory`）
+  - `REDIS_URL` 与 `CHECKPOINT_TTL` 在选择 `redis` 时生效
+  - 初始化 RedisSaver 失败时自动降级为 MemorySaver，保证可用；/ready 保持 Redis 连通性检查以决定是否放量
 
 ### 4) 多 Agent/子图编排
 - 能力（建议）：
