@@ -163,6 +163,10 @@ agent-platform/
 |------|------|
 | `agents/registry.py` | AgentMeta 注册表，启动时由各域 register.py 填充，运行时按 agent_id 查找 |
 | `workflows/base_agent.py` | 可复用的基础 Graph（记忆拉取→RAG→推理→工具→记忆写回），各域继承后扩展节点 |
+| `workflows/plan_execute.py` | PlanExecute 编排 Graph（planner→executor→replanner→finalize） |
+| `workflows/state.py` | 统一编排状态定义与初始状态构造 |
+| `orchestrator_factory.py` | 运行时根据租户/Agent/输入动态选择 command 或 plan_execute 模式 |
+| `mode_selector.py` | 双模式选择与降级规则（allowlist、关键词升级、重规划上限） |
 | `checkpoints/redis_checkpoint.py` | Checkpoint 后端选择（Memory/Redis 可配置），支持 Human-in-the-loop 和中断恢复 |
 
 ### apps/ — 业务域层
@@ -191,6 +195,12 @@ cp .env.example .env
 # （可选）根据环境切换检查点后端：
 # CHECKPOINT_BACKEND=memory            # 开发/测试
 # CHECKPOINT_BACKEND=redis             # 生产，需配合 REDIS_URL 与 CHECKPOINT_TTL
+# （可选）双模式编排开关：
+# ORCH_DEFAULT_MODE=command
+# ORCH_MAX_STEPS=12
+# ORCH_MAX_REPLANS=2
+# ORCH_PLAN_EXECUTE_AGENTS=
+# ORCH_PLAN_EXECUTE_TENANTS=
 
 # 4. 启动服务
 uvicorn main:app --reload --port 8000
@@ -223,6 +233,13 @@ mkdir -p apps/underwriting/{tools,prompts}
 ---
 
 ## 变更记录
+
+- 2026-03-27
+  - 新增双模式动态编排：`command` 与 `plan_execute`，运行时由 `orchestrator_factory` 按租户/Agent/输入自动选择
+  - 扩展 `AgentMeta`：支持 `orchestration_mode`、`routing_mode`、`fallback_mode`、`max_replans`
+  - 新增配置：`ORCH_DEFAULT_MODE`、`ORCH_MAX_STEPS`、`ORCH_MAX_REPLANS`、`ORCH_PLAN_EXECUTE_AGENTS`、`ORCH_PLAN_EXECUTE_TENANTS`
+  - `main.py` 的 `/agent/run` 与 `/agent/stream` 已接入统一编排工厂，返回结果附带模式信息
+  - 新增测试：`test_mode_selector.py`、`test_orchestrator_factory.py`
 
 - 2026-03-26
   - 新增 `core/ai_core/embedding/provider.py`，提供统一 Embedding Provider 抽象与默认实现（SentenceTransformer），通过 `settings.embedding.embedding_model` 与 `settings.embedding.device` 配置

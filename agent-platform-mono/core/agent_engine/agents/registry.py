@@ -3,7 +3,7 @@ Agent 注册表。
 启动时由各域的 register.py 填充，运行时按 agent_id 查找。
 """
 from dataclasses import dataclass, field
-from typing import Callable, Any, Optional
+from typing import Callable, Any, Optional, Literal
 from core.memory_rag.memory.config import MemoryConfig, DEFAULT_MEMORY_CONFIG
 from shared.logging.logger import get_logger
 
@@ -23,6 +23,10 @@ class AgentMeta:
     memory_config: MemoryConfig = field(default_factory=lambda: DEFAULT_MEMORY_CONFIG)
     # 该 Agent 支持的 MCP tool 名称列表（用于文档展示）
     tools: list[str] = field(default_factory=list)
+    orchestration_mode: Literal["command", "plan_execute"] = "command"
+    routing_mode: Literal["rule", "llm", "hybrid"] = "hybrid"
+    fallback_mode: Literal["command", "finalize"] = "command"
+    max_replans: int = 2
 
 
 class AgentRegistry:

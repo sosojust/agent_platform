@@ -86,3 +86,4 @@ sqlite3.db
 
 # Project specific
 !*.env.example
+agent-platform-mono/docs/draft/

@@ -171,3 +171,52 @@ def register():
   - apps 提供候选集合（包含 `name/description/keywords/tool`）
   - 在构建 Base Agent 前调用选择策略得到最终工具列表
   - 工具调用仍通过 `ToolNode` 与 `tool_service`，不越过接入层
+
+## 动态编排方案（可控动态）
+- 目标：在保持平台合同与安全边界的前提下，让 Agent 根据上下文动态决定“是否调用工具、进入哪个节点、是否直接结束”。
+- 原则：
+  - 不是完全自由编排，而是“静态骨架 + 动态分支”
+  - 编排边界由 `agent_engine` 控制，节点路径由 Router 决策
+  - 工具调用由“模型建议 + 策略复核”双层判定
+
+### 推荐拓扑
+- 固定主干节点：`memory_read -> decide_next_step -> (retrieve | reason | tool_exec | finalize) -> memory_write`
+- 条件边由 `decide_next_step` 统一输出：
+  - `need_context`：进入 `retrieve`
+  - `need_action`：进入 `tool_exec`
+  - `enough_info`：进入 `reason` 或 `finalize`
+  - `fallback`：异常时进入降级路径（非工具回答/备用节点）
+
+### Router 节点职责
+- 输入：`messages`, `tenant_id`, `memory_context`, `rag_context`, `tool_candidates`, `step_count`, `error_count`, `budget`
+- 输出：`next_node`, `reason`, `confidence`, `selected_tools`, `guard_flags`
+- 判定信号（建议）：
+  - 信息充分性：上下文是否足以回答
+  - 可执行性：是否需要外部系统动作
+  - 风险等级：是否涉及敏感或高成本工具
+  - 预算约束：token/时延/调用次数阈值
+  - 失败历史：最近是否连续失败，是否应降级
+
+### 工具决策与治理
+- 第一层（LLM）：基于工具 schema 与描述产出“是否调用工具 + 候选工具名”
+- 第二层（策略层）：在 `ToolRouter` 做白名单、租户权限、配额、限流与风险策略校验
+- 执行层：统一经 `tool_service.registry.invoke()`，并透传 `tenant_id/conversation_id/thread_id/trace_id`
+- 失败处理：超时、鉴权失败、外部 5xx 等统一归一化后触发降级边
+
+### 状态机与可恢复性
+- 每个节点必须读写统一 state，并维护 `step_count` 与最近决策元数据
+- 所有动态跳转都可回放：`next_node/reason/confidence` 写入 checkpoint
+- 依赖 `thread_id + checkpointer` 保证中断恢复后可继续原路径执行
+
+### 观测指标（建议纳入 /ready 与运营看板）
+- `router_decision_count{next_node}`
+- `tool_call_rate`, `tool_success_rate`, `tool_fallback_rate`
+- `avg_hops_per_request`, `p95_latency_by_node`
+- `degrade_count`, `max_step_guard_triggered`
+- 按 `tenant_id/agent_id` 维度聚合，支持灰度与回滚决策
+
+### 最小可落地版本（MVP）
+- 新增 `decide_next_step` 节点，仅输出 `retrieve/tool_exec/reason/finalize`
+- 先使用规则 + 轻量 LLM 混合判定，保留阈值配置在 `shared/config/settings.py`
+- 将工具候选集合前置到构图阶段，运行时只做选择与执行
+- 对 `tool_exec` 增加一次重试与一次降级，不做无限回环

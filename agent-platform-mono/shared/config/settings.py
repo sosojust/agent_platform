@@ -70,6 +70,11 @@ class AppSettings(BaseSettings):
     host: str = Field(default="0.0.0.0", alias="HOST")
     port: int = Field(default=8000, alias="PORT")
     checkpoint_backend: str = Field(default="memory", alias="CHECKPOINT_BACKEND")
+    orch_default_mode: str = Field(default="command", alias="ORCH_DEFAULT_MODE")
+    orch_max_steps: int = Field(default=12, alias="ORCH_MAX_STEPS")
+    orch_max_replans: int = Field(default=2, alias="ORCH_MAX_REPLANS")
+    orch_plan_execute_agents: list[str] = Field(default_factory=list, alias="ORCH_PLAN_EXECUTE_AGENTS")
+    orch_plan_execute_tenants: list[str] = Field(default_factory=list, alias="ORCH_PLAN_EXECUTE_TENANTS")
     mcp_service_url: str = "http://localhost:8004"
     internal_gateway_url: str = "http://localhost:8000"
     gateway_timeout: int = 30

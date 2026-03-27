@@ -37,6 +37,8 @@ from shared.models.schemas import AgentRunRequest, AgentRunResponse
 from shared.fastapi_utils import ReadinessRegistry, make_health_router, register_error_handlers
 from core.agent_engine.agents.registry import registry
 from core.agent_engine.checkpoints.redis_checkpoint import get_checkpointer
+from core.agent_engine.orchestrator_factory import build_orchestrator
+from core.agent_engine.workflows.state import make_initial_state
 from core.tool_service.client.gateway import gateway_client
 from core.tool_service import registry as tool_registry
 
@@ -264,22 +266,27 @@ async def run_agent(request: AgentRunRequest) -> AgentRunResponse:
                    f"Available: {[a.agent_id for a in registry.list_all()]}",
         )
 
-    agent = agent_meta.factory()
+    initial_state = make_initial_state(
+        messages=[HumanMessage(content=request.input)],
+        conversation_id=conversation_id,
+        tenant_id=tenant_id,
+    )
+    agent, mode = build_orchestrator(
+        meta=agent_meta,
+        tenant_id=tenant_id,
+        user_input=request.input,
+        state=initial_state,
+    )
     checkpointer = await get_checkpointer()
     config = {"configurable": {"thread_id": conversation_id, "checkpointer": checkpointer}}
-    initial_state = {
-        "messages": [HumanMessage(content=request.input)],
-        "conversation_id": conversation_id, "tenant_id": tenant_id,
-        "memory_context": "", "rag_context": "", "step_count": 0,
-    }
 
     try:
         result = await agent.ainvoke(initial_state, config=config)
         output = str(result["messages"][-1].content)
         logger.info("agent_run_complete", agent_id=request.agent_id,
-                    conversation_id=conversation_id, steps=result["step_count"])
+                    conversation_id=conversation_id, steps=result.get("step_count", 0), mode=mode)
         return AgentRunResponse(conversation_id=conversation_id, output=output,
-                                steps=[{"step_count": result["step_count"]}])
+                                steps=[{"step_count": result.get("step_count", 0), "mode": mode}])
     except Exception as e:
         logger.error("agent_run_failed", agent_id=request.agent_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -298,14 +305,19 @@ async def stream_agent(request: AgentRunRequest) -> StreamingResponse:
         raise HTTPException(status_code=404,
                             detail=f"Agent '{request.agent_id}' not found")
 
-    agent = agent_meta.factory()
+    initial_state = make_initial_state(
+        messages=[HumanMessage(content=request.input)],
+        conversation_id=conversation_id,
+        tenant_id=tenant_id,
+    )
+    agent, mode = build_orchestrator(
+        meta=agent_meta,
+        tenant_id=tenant_id,
+        user_input=request.input,
+        state=initial_state,
+    )
     checkpointer = await get_checkpointer()
     config = {"configurable": {"thread_id": conversation_id, "checkpointer": checkpointer}}
-    initial_state = {
-        "messages": [HumanMessage(content=request.input)],
-        "conversation_id": conversation_id, "tenant_id": tenant_id,
-        "memory_context": "", "rag_context": "", "step_count": 0,
-    }
 
     async def event_generator():
         try:
@@ -321,7 +333,7 @@ async def stream_agent(request: AgentRunRequest) -> StreamingResponse:
                     yield f"data: {json.dumps({'event': 'step_start', 'data': event['name']})}\n\n"
                 elif kind == "on_tool_end":
                     yield f"data: {json.dumps({'event': 'step_end', 'data': event['name']})}\n\n"
-            yield f"data: {json.dumps({'event': 'done', 'data': None})}\n\n"
+            yield f"data: {json.dumps({'event': 'done', 'data': {'mode': mode}})}\n\n"
         except Exception as e:
             logger.error("agent_stream_error", error=str(e))
             yield f"data: {json.dumps({'event': 'error', 'data': str(e)})}\n\n"
