@@ -1,0 +1,3 @@
+输入: {input_text}
+候选工具: {candidates_json}
+请只返回 JSON 数组。

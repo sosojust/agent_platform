@@ -63,6 +63,21 @@
 - 提供方式：
   - 在构造 messages 前调用，返回最终可用的 prompt 文本
 
+#### Langfuse Prompt 命名约定与清单
+- 命名约定：
+  - 业务 Agent 系统提示词：`{domain}_agent_system`（例如：`policy_agent_system`）
+  - 平台通用能力提示词：`{module}_{action}_{role}`（例如：`tool_router_select_sys`、`tool_router_select_user`）
+- 当前关键 Prompt Key（建议在 Langfuse 中同名维护）：
+  - `policy_agent_system`
+  - `claim_agent_system`
+  - `customer_agent_system`
+  - `tool_router_select_sys`
+  - `tool_router_select_user`
+- 回退约定：
+  - Langfuse 中不存在或拉取失败时，按 `LocalFilePromptProvider` 规则回退到本地模板文件
+  - `tool_router_select_sys` → `core/ai_core/prompt/tool_router_select_sys.txt`
+  - `tool_router_select_user` → `core/ai_core/prompt/tool_router_select_user.txt`
+
 #### 防腐层要点
 - 与 Langfuse/第三方存储交互统一封装在 `prompt/manager.py`，上游仅依赖 `get_prompt(name, variables)`
 - 失败与超时策略统一由管理器处理，避免上游直接感知第三方 API 差异

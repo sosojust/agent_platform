@@ -240,6 +240,7 @@ mkdir -p apps/underwriting/{tools,prompts}
   - 新增配置：`ORCH_DEFAULT_MODE`、`ORCH_MAX_STEPS`、`ORCH_MAX_REPLANS`、`ORCH_PLAN_EXECUTE_AGENTS`、`ORCH_PLAN_EXECUTE_TENANTS`
   - `main.py` 的 `/agent/run` 与 `/agent/stream` 已接入统一编排工厂，返回结果附带模式信息
   - 新增测试：`test_mode_selector.py`、`test_orchestrator_factory.py`
+  - `core/agent_engine/tools/router.py` 的 LLM 工具选择提示词接入 `PromptManager`，并增加本地模板 `tool_router_select_sys.txt`、`tool_router_select_user.txt`
 
 - 2026-03-26
   - 新增 `core/ai_core/embedding/provider.py`，提供统一 Embedding Provider 抽象与默认实现（SentenceTransformer），通过 `settings.embedding.embedding_model` 与 `settings.embedding.device` 配置
