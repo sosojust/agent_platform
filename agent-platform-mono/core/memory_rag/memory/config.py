@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 @dataclass
 class MemoryConfig:
     short_term_max_turns: int = 20
+    short_term_dedup_window: int = 6
     long_term_enabled: bool = True
     rag_top_k_recall: int = 20
     rag_top_k_rerank: int = 5
@@ -21,6 +22,14 @@ class MemoryConfig:
     short_to_long_trigger_turns: int = 20
     long_term_retrieve_top_k: int = 5
     memory_types_default: list[str] = field(default_factory=lambda: ["conversation"])
+    filter_strategies: list[str] = field(default_factory=lambda: ["noise", "duplicate_recent"])
+    compression_strategy: str = "window"
+    compression_threshold: int = 20
+    compression_keep_recent: int = 6
+    compression_token_threshold: int = 0
+    tokenizer_provider: str = "char"
+    compression_model_name: str = ""
+    llm_compression_task_type: str = "simple"
 
 
 DEFAULT_MEMORY_CONFIG = MemoryConfig()

@@ -11,6 +11,7 @@
 - 可插拔与降级：主提供者不可用时自动切换备提供者或本地实现；流式出错可降级为非流式；Prompt 拉取失败使用本地兜底
 - 配置治理：模型/路由/端点/鉴权/超时在 `shared/config/settings.py` 与 Nacos 管理；禁止硬编码
 - 观测与就绪：关键链路统一打点；/ready 暴露分项检查（`prompts_ready`、`rag_ready`、`rerank_available`、`redis`、`qdrant` 等）
+- 命名约束：对上统一使用 `*_gateway` 暴露稳定入口；对下统一使用 `*_provider` 承载第三方适配；协议/抽象文件优先命名为 `*_provider_protocols.py`，避免使用语义模糊的 `contracts.py`
 
 ## ai_core 约束
 - Prompt 管理：仅使用 `prompt_manager.get(name, variables, version)`；内部通过 `PromptProvider` 链（Langfuse→本地）实现

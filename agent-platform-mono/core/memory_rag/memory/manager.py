@@ -5,26 +5,20 @@ from typing import Any, Dict, List
 from redis.asyncio import Redis
 from shared.config.settings import settings
 from shared.logging.logger import get_logger
+from core.memory_rag.memory.compressor import build_compressor, build_tokenizer
+from core.memory_rag.memory.provider_protocols import CompressionRequest, MessageCompressor
 from core.memory_rag.memory.config import MemoryConfig
+from core.memory_rag.memory.filters import DuplicateRecentFilter, NoiseFilter, normalize_content
 from core.memory_rag.embedding.gateway import embedding_gateway
 from core.memory_rag.vector.store import vector_gateway
 
 logger = get_logger(__name__)
 
-_NOISE_TEXTS = {
-    "嗯",
-    "哦",
-    "好的",
-    "收到",
-    "了解",
-    "谢谢",
-    "好的谢谢",
-}
-
-
 class MemoryGateway:
     def __init__(self) -> None:
         self._client: Any | None = None
+        self._default_noise_filter = NoiseFilter()
+        self._default_duplicate_filter = DuplicateRecentFilter(window_size=6)
 
     async def _r(self) -> Any:
         if self._client is None:
@@ -39,7 +33,7 @@ class MemoryGateway:
         tenant_id: str,
         config: MemoryConfig,
     ) -> None:
-        normalized = self._normalize_content(content)
+        normalized = normalize_content(content)
         if not normalized:
             logger.info(
                 "memory_append_skipped",
@@ -48,7 +42,8 @@ class MemoryGateway:
                 reason="empty_content",
             )
             return
-        if config.memory_noise_filter_enabled and self._is_noise(normalized):
+        noise_filter = self._noise_filter(config)
+        if noise_filter is not None and noise_filter.is_noise(normalized):
             logger.info(
                 "memory_append_skipped",
                 tenant_id=tenant_id,
@@ -58,11 +53,13 @@ class MemoryGateway:
             return
         r: Any = await self._r()
         key = f"mem:{tenant_id}:{conversation_id}"
-        if await self._is_duplicate_recent(
-            redis_client=r,
-            key=key,
+        duplicate_filter = self._duplicate_filter(config)
+        recent_raw: List[str] = await r.lrange(key, -max(1, int(config.short_term_dedup_window)), -1)
+        recent_items = [json.loads(raw) for raw in recent_raw]
+        if duplicate_filter is not None and duplicate_filter.is_duplicate(
             role=role,
             content=normalized,
+            recent_messages=recent_items,
         ):
             logger.info(
                 "memory_append_skipped",
@@ -75,10 +72,12 @@ class MemoryGateway:
         await r.rpush(key, json.dumps(entry, ensure_ascii=False))
         await r.expire(key, settings.redis.checkpoint_ttl)
         length = await r.llen(key)
-        exceed = max(0, length - config.short_term_max_turns)
-        if exceed > 0:
-            await r.ltrim(key, exceed, -1)
-            length = await r.llen(key)
+        length = await self._apply_short_term_compression(
+            redis_client=r,
+            key=key,
+            current_length=int(length),
+            config=config,
+        )
         if config.long_term_enabled:
             await self._trigger_consolidate_if_needed(
                 redis_client=r,
@@ -161,10 +160,11 @@ class MemoryGateway:
         for raw in items:
             obj = json.loads(raw)
             role = str(obj.get("role", ""))
-            content = self._normalize_content(str(obj.get("content", "")))
+            content = normalize_content(str(obj.get("content", "")))
             if not content:
                 continue
-            if config.memory_noise_filter_enabled and self._is_noise(content):
+            noise_filter = self._noise_filter(config)
+            if noise_filter is not None and noise_filter.is_noise(content):
                 continue
             ts = int(obj.get("ts", int(time.time())))
             memory_type = self._resolve_memory_type(config)
@@ -201,7 +201,7 @@ class MemoryGateway:
         ids: List[str] = []
         now = int(time.time())
         for i, entry in enumerate(entries):
-            content = self._normalize_content(str(entry.get("content", "")))
+            content = normalize_content(str(entry.get("content", "")))
             if not content:
                 continue
             ts = int(entry.get("timestamp", now))
@@ -226,31 +226,6 @@ class MemoryGateway:
             ids=ids,
         )
         return len(texts)
-
-    async def _is_duplicate_recent(
-        self,
-        redis_client: Any,
-        key: str,
-        role: str,
-        content: str,
-    ) -> bool:
-        recent_items: List[str] = await redis_client.lrange(key, -6, -1)
-        for raw in reversed(recent_items):
-            obj: Dict[str, Any] = json.loads(raw)
-            old_role = str(obj.get("role", ""))
-            old_content = self._normalize_content(str(obj.get("content", "")))
-            if old_role == role and old_content == content:
-                return True
-        return False
-
-    def _normalize_content(self, content: str) -> str:
-        return " ".join(content.strip().split())
-
-    def _is_noise(self, content: str) -> bool:
-        compact = content.replace(" ", "")
-        if len(compact) <= 1:
-            return True
-        return compact in _NOISE_TEXTS
 
     def _memory_collection_name(self, tenant_id: str) -> str:
         return f"{tenant_id}_memory"
@@ -307,6 +282,76 @@ class MemoryGateway:
             written=written,
             short_term_len=current_short_term_len,
         )
+
+    async def _apply_short_term_compression(
+        self,
+        redis_client: Any,
+        key: str,
+        current_length: int,
+        config: MemoryConfig,
+    ) -> int:
+        compressor = self._compressor(config)
+        threshold = self._compression_turn_threshold(config)
+        token_threshold = max(0, int(config.compression_token_threshold))
+        if current_length <= threshold and token_threshold <= 0:
+            return current_length
+        raw_items: List[str] = await redis_client.lrange(key, 0, -1)
+        messages = [json.loads(raw) for raw in raw_items]
+        if not messages:
+            return 0
+        tokenizer = build_tokenizer(config.tokenizer_provider)
+        if token_threshold > 0:
+            message_tokens = tokenizer.count_messages(messages, model_name=config.compression_model_name)
+            if message_tokens <= token_threshold and len(messages) <= threshold:
+                return len(messages)
+        request = CompressionRequest(
+            messages=messages,
+            max_turns=threshold,
+            keep_recent=max(1, int(config.compression_keep_recent)),
+            token_threshold=token_threshold,
+            model_name=config.compression_model_name,
+        )
+        result = await compressor.compress(request)
+        if not result.applied:
+            return len(messages)
+        await redis_client.ltrim(key, 1, 0)
+        now = int(time.time())
+        for message in result.messages:
+            role = str(message.get("role", "system"))
+            content = normalize_content(str(message.get("content", "")))
+            if not content:
+                continue
+            ts = int(message.get("ts", now))
+            await redis_client.rpush(
+                key,
+                json.dumps({"role": role, "content": content, "ts": ts}, ensure_ascii=False),
+            )
+        await redis_client.expire(key, settings.redis.checkpoint_ttl)
+        final_len = await redis_client.llen(key)
+        return int(final_len)
+
+    def _compression_turn_threshold(self, config: MemoryConfig) -> int:
+        if int(config.compression_threshold) > 0:
+            return int(config.compression_threshold)
+        return max(1, int(config.short_term_max_turns))
+
+    def _compressor(self, config: MemoryConfig) -> MessageCompressor:
+        strategy = str(config.compression_strategy or "window")
+        if strategy == "llm_summary":
+            return build_compressor(strategy_name=f"{strategy}:{config.llm_compression_task_type}")
+        return build_compressor(strategy_name=strategy)
+
+    def _noise_filter(self, config: MemoryConfig) -> NoiseFilter | None:
+        if not config.memory_noise_filter_enabled:
+            return None
+        if "noise" not in {str(x) for x in config.filter_strategies}:
+            return None
+        return self._default_noise_filter
+
+    def _duplicate_filter(self, config: MemoryConfig) -> DuplicateRecentFilter | None:
+        if "duplicate_recent" not in {str(x) for x in config.filter_strategies}:
+            return None
+        return DuplicateRecentFilter(window_size=max(1, int(config.short_term_dedup_window)))
 
 
 memory_gateway = MemoryGateway()

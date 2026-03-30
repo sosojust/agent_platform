@@ -20,14 +20,14 @@
 - `core/agent_engine`：工作流编排与模式选择（command / plan_execute）
 - `core/tool_service`：工具注册与调用统一入口（MCP/Skill）
 - `core/ai_core`：Prompt 管理、LLM 客户端与模型路由
-- `core/memory_rag`：Embedding、向量检索、记忆管理、RAG Pipeline
+- `core/memory_rag`：Embedding、向量检索、记忆管理、消息过滤/压缩、RAG Pipeline
 - `shared`：配置、日志、中间件、跨层模型
 
 ### 关键调用链路
 
 1. 请求经 `main.py` 转发至 `app/gateway/app.py`，中间件注入 `tenant_id/conversation_id/thread_id/trace_id`
 2. `agent_engine` 根据 agent 元数据与输入选择编排模式
-3. 编排节点通过 `ai_core` 调 LLM，通过 `tool_service` 调工具，通过 `memory_rag` 做记忆与检索
+3. 编排节点通过 `ai_core` 调 LLM，通过 `tool_service` 调工具，通过 `memory_rag` 做记忆、消息过滤/压缩与检索
 4. 输出结果并记录统一结构化日志，状态由 checkpoint 管理
 
 ### 目录结构（精简）
@@ -81,6 +81,8 @@ agent-platform-mono/
 
 - `memory/manager.py`：MemoryGateway（短期记忆写入治理、长期记忆读写、短转长触发与上下文聚合）
 - `memory/config.py`：记忆/RAG 策略配置（含新增 M1/M2 配置项）
+- `memory/filters.py`：消息过滤器（如噪声/重复/工具中间态过滤）与策略注册
+- `memory/compressor.py`：消息压缩器（如 simple/llm 摘要压缩）与策略装配
 - `rag/pipeline.py`：RagGateway（召回与精排流水线）
 - `vector/store.py`：VectorGateway（当前向量库实现为 QdrantProvider）
 - `rag/filters.py`：Filter DSL 到后端过滤表达式转换
@@ -187,11 +189,14 @@ ruff check .
 已完成（M1/M2）：
 
 - 写入治理：空白过滤、噪声过滤、短窗口去重
+- 策略模块化：过滤能力下沉到 `memory/filters.py`，压缩能力下沉到 `memory/compressor.py`
+- 平台契约：新增 `memory/provider_protocols.py`（`MessageFilter`/`MessageCompressor`/`TokenizerProvider`/`LongTermExtractor`）
+- 压缩策略：新增 `window/simple_summary/llm_summary` 与 `char/tiktoken` tokenizer provider
 - 长期记忆：`append_long_term` / `retrieve_long_term`
 - 短转长：达到阈值自动触发 `consolidate_short_to_long`
 - 上下文构建：短期 + 长期聚合
-- 配置扩展：`memory_noise_filter_enabled`、`short_to_long_trigger_turns`、`long_term_retrieve_top_k`、`memory_types_default`
-- 单元测试：覆盖噪声过滤、去重、触发 consolidate、聚合读取
+- 配置扩展：`memory_noise_filter_enabled`、`short_to_long_trigger_turns`、`long_term_retrieve_top_k`、`memory_types_default`、`filter_strategies`、`compression_strategy`、`compression_threshold`、`compression_token_threshold`
+- 单元测试：覆盖噪声过滤、去重、窗口压缩、触发 consolidate、聚合读取
 
 规划中（M3）：
 
@@ -211,6 +216,15 @@ ruff check .
 ## 变更记录
 
 - 2026-03-30
+  - 架构范围更新：将 chat message 的“消息过滤/压缩”明确纳入 `core/memory_rag`（memory 层负责定义与实现，agent_engine 负责编排调用）
+  - README 补充 `core/memory_rag` 下 `memory/filters.py` 与 `memory/compressor.py` 的职责说明，并更新关键调用链路描述
+  - `memory/manager.py` 已移除内联 `_is_noise/_normalize_content/_is_duplicate_recent`，统一复用 `filters.py` 与 `compressor.py`
+  - 新增 `tests/memory/test_filters_compressor.py`，覆盖内容规范化、噪声识别、近窗去重与窗口压缩
+  - 文档对齐：`docs/消息过滤和压缩.md` 按当前 `manager.py` 流程更新
+  - 新增平台级能力契约 `core/memory_rag/memory/provider_protocols.py`，定义 Filter/Compressor/Tokenizer/Extractor 抽象
+  - 命名对齐：`contracts.py` 更名为 `provider_protocols.py`，统一 `*_gateway`（对上）与 `*_provider`（对下）语义边界
+  - 新增压缩策略实现：`SimpleSummaryCompressor`、`LLMSummaryCompressor`，并通过 `compression_strategy` 配置路由
+  - 新增 token 计数提供者抽象：`build_tokenizer(char/tiktoken)`，支持 token 阈值触发压缩
   - 架构重构：`apps/` 更名为 `domain_agents/`，新增 `app/gateway` 应用层并拆分为 `app.py`、`lifespan.py`、`routers/*`
   - `main.py` 简化为单行导出：`from app.gateway.app import app`，保持 `uvicorn main:app` 与 Docker 启动兼容
   - `shared/fastapi_utils` 下沉到 `app/gateway`（`readiness.py`、`error_handlers.py`），并完成所有引用迁移
