@@ -1,8 +1,8 @@
 """理赔域注册入口。"""
 from core.agent_engine.agents.registry import agent_gateway, AgentMeta
-from apps.claim.claim_agent import build_claim_agent
-from apps.claim.memory_config import CLAIM_MEMORY_CONFIG
-from apps.claim.tools.claim_tools import claim_tools
+from domain_agents.claim.claim_agent import build_claim_agent
+from domain_agents.claim.memory_config import CLAIM_MEMORY_CONFIG
+from domain_agents.claim.tools.claim_tools import claim_tools
 
 
 def register() -> None:

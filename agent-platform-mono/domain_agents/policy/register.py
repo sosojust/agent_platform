@@ -4,8 +4,8 @@ main.py lifespan 自动调用此文件的 register() 函数。
 """
 from core.agent_engine.agents.registry import agent_gateway, AgentMeta
 from core.agent_engine.workflows.base_agent import build_base_agent
-from apps.policy.memory_config import POLICY_MEMORY_CONFIG
-from apps.policy.tools.policy_tools import policy_tools
+from domain_agents.policy.memory_config import POLICY_MEMORY_CONFIG
+from domain_agents.policy.tools.policy_tools import policy_tools
 
 
 def register() -> None:

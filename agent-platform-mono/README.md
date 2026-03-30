@@ -15,7 +15,8 @@
 
 ### 分层架构（核心边界）
 
-- `apps/`：业务域编排与注册（如 policy/claim/customer），通过平台稳定接口接入能力
+- `app/gateway`：应用层入口（FastAPI 实例、lifespan、routers、异常处理与健康检查）
+- `domain_agents/`：业务域编排与注册（如 policy/claim/customer），通过平台稳定接口接入能力
 - `core/agent_engine`：工作流编排与模式选择（command / plan_execute）
 - `core/tool_service`：工具注册与调用统一入口（MCP/Skill）
 - `core/ai_core`：Prompt 管理、LLM 客户端与模型路由
@@ -24,7 +25,7 @@
 
 ### 关键调用链路
 
-1. 请求进入 `main.py`，中间件注入 `tenant_id/conversation_id/thread_id/trace_id`
+1. 请求经 `main.py` 转发至 `app/gateway/app.py`，中间件注入 `tenant_id/conversation_id/thread_id/trace_id`
 2. `agent_engine` 根据 agent 元数据与输入选择编排模式
 3. 编排节点通过 `ai_core` 调 LLM，通过 `tool_service` 调工具，通过 `memory_rag` 做记忆与检索
 4. 输出结果并记录统一结构化日志，状态由 checkpoint 管理
@@ -36,13 +37,23 @@ agent-platform-mono/
 ├── main.py
 ├── pyproject.toml
 ├── .env.example
+├── app/
+│   └── gateway/
+│       ├── app.py
+│       ├── lifespan.py
+│       ├── error_handlers.py
+│       ├── readiness.py
+│       └── routers/
+│           ├── agents.py
+│           ├── tools.py
+│           └── health.py
 ├── shared/
 ├── core/
 │   ├── ai_core/
 │   ├── memory_rag/
 │   ├── tool_service/
 │   └── agent_engine/
-├── apps/
+├── domain_agents/
 │   ├── policy/
 │   ├── claim/
 │   └── customer/
@@ -88,7 +99,7 @@ agent-platform-mono/
 - `mode_selector.py`：模式选择与降级策略
 - `tools/router.py`：工具选择与提示词管理接入
 
-### apps
+### domain_agents
 
 业务域（policy/claim/customer）通过 `register.py` 注册 agent、工具与 memory 配置，框架层无需改动。
 
@@ -193,13 +204,17 @@ ruff check .
 
 ## 新增业务域（标准流程）
 
-1. 在 `apps/<domain>/` 新增 `register.py`、`*_agent.py`、`memory_config.py`、`tools/`、`prompts/`
+1. 在 `domain_agents/<domain>/` 新增 `register.py`、`*_agent.py`、`memory_config.py`、`tools/`、`prompts/`
 2. 在 `register.py` 声明 agent 元信息、候选工具、memory 配置
 3. 重启服务后自动注册，无需改 `main.py`
 
 ## 变更记录
 
 - 2026-03-30
+  - 架构重构：`apps/` 更名为 `domain_agents/`，新增 `app/gateway` 应用层并拆分为 `app.py`、`lifespan.py`、`routers/*`
+  - `main.py` 简化为单行导出：`from app.gateway.app import app`，保持 `uvicorn main:app` 与 Docker 启动兼容
+  - `shared/fastapi_utils` 下沉到 `app/gateway`（`readiness.py`、`error_handlers.py`），并完成所有引用迁移
+  - 测试与导入路径同步更新：`apps.*` 全部替换为 `domain_agents.*`
   - 基于近期架构与 Memory 模块沟通，完整重构 README：更新项目介绍、分层职责、依赖配置、接口说明、质量门禁与 Memory 进展
   - 统一命名：`core/memory_rag/embedding/gateway.py` 对外实例命名为 `embedding_gateway`，并同步更新 RAG、Memory、ToolRouter、向量存储与就绪检查引用
   - 进一步统一 ACL 命名：对上统一 `*_gateway`（`llm_gateway`/`prompt_gateway`/`memory_gateway`/`rag_gateway`/`tool_gateway`/`agent_gateway`），对下统一 `*_provider`（含 MCP 与外部依赖适配）

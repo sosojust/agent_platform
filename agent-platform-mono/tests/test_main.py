@@ -1,7 +1,7 @@
 """主 API 集成测试。"""
 import pytest
 from httpx import AsyncClient, ASGITransport
-from main import app
+from app.gateway.app import app
 
 
 @pytest.fixture
@@ -22,9 +22,9 @@ async def test_health(client: AsyncClient):
 
 
 async def test_list_agents_includes_all_domains(client: AsyncClient):
-    from apps.policy.register import register as register_policy
-    from apps.claim.register import register as register_claim
-    from apps.customer.register import register as register_customer
+    from domain_agents.policy.register import register as register_policy
+    from domain_agents.claim.register import register as register_claim
+    from domain_agents.customer.register import register as register_customer
     register_policy()
     register_claim()
     register_customer()
@@ -59,8 +59,7 @@ async def test_run_agent_returns_conversation_id(client: AsyncClient, monkeypatc
         "factory": lambda self: mock_agent_instance
     })()
     
-    # Patch main.agent_gateway.get
-    monkeypatch.setattr("main.agent_gateway.get", lambda x: mock_agent_model)
+    monkeypatch.setattr("app.gateway.routers.agents.agent_gateway.get", lambda x: mock_agent_model)
     resp = await client.post("/agent/run", json={
         "agent_id": "policy-assistant",
         "input": "查询保单 P2024001",

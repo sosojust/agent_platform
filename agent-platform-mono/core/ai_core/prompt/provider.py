@@ -46,7 +46,7 @@ class LocalFilePromptProvider(PromptProvider):
         base = Path(__file__).resolve().parents[3]
         if name.endswith("_system"):
             domain = name.split("_")[0]
-            return base / "apps" / domain / "prompts" / "system.txt"
+            return base / "domain_agents" / domain / "prompts" / "system.txt"
         return base / "core" / "ai_core" / "prompt" / f"{name}.txt"
 
     def get(self, name: str, version: str | None = None) -> Optional[str]:

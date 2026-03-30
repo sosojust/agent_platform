@@ -1,8 +1,8 @@
 """客服域注册入口。"""
 from core.agent_engine.agents.registry import agent_gateway, AgentMeta
 from core.agent_engine.workflows.base_agent import build_base_agent
-from apps.customer.memory_config import CUSTOMER_MEMORY_CONFIG
-from apps.customer.tools.customer_tools import customer_tools
+from domain_agents.customer.memory_config import CUSTOMER_MEMORY_CONFIG
+from domain_agents.customer.tools.customer_tools import customer_tools
 
 
 def register() -> None:

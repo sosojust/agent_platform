@@ -28,8 +28,8 @@ from core.agent_engine.workflows.base_agent import (
     make_llm_reason_node,
     make_update_memory_node,
 )
-from apps.claim.memory_config import CLAIM_MEMORY_CONFIG
-from apps.claim.tools.claim_tools import claim_tools
+from domain_agents.claim.memory_config import CLAIM_MEMORY_CONFIG
+from domain_agents.claim.tools.claim_tools import claim_tools
 from shared.config.settings import settings
 from shared.logging.logger import get_logger
 
