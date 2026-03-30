@@ -7,7 +7,7 @@ from shared.config.settings import settings
 from shared.logging.logger import get_logger
 from core.memory_rag.memory.config import MemoryConfig
 from core.memory_rag.embedding.gateway import embedding_gateway
-from core.memory_rag.vector.store import vector_store
+from core.memory_rag.vector.store import vector_gateway
 
 logger = get_logger(__name__)
 
@@ -22,7 +22,7 @@ _NOISE_TEXTS = {
 }
 
 
-class MemoryManager:
+class MemoryGateway:
     def __init__(self) -> None:
         self._client: Any | None = None
 
@@ -130,7 +130,7 @@ class MemoryManager:
         collection = self._memory_collection_name(tenant_id)
         filters = self._build_long_term_filter(tenant_id=tenant_id, memory_types=memory_types)
         try:
-            hits = vector_store.search(
+            hits = vector_gateway.search(
                 collection=collection,
                 query_vector=query_vector,
                 top_k=use_top_k,
@@ -219,7 +219,7 @@ class MemoryManager:
             ids.append(f"{tenant_id}:{conversation_id}:{memory_type}:{ts}:{i}")
         if not texts:
             return 0
-        vector_store.add_texts(
+        vector_gateway.add_texts(
             collection=collection,
             texts=texts,
             metadatas=metadatas,
@@ -272,9 +272,9 @@ class MemoryManager:
 
     def _ensure_collection_exists(self, collection: str) -> None:
         try:
-            if collection in vector_store.list_collections():
+            if collection in vector_gateway.list_collections():
                 return
-            vector_store.create_collection(collection, {"vector_size": 0})
+            vector_gateway.create_collection(collection, {"vector_size": 0})
         except Exception:
             return
 
@@ -309,4 +309,4 @@ class MemoryManager:
         )
 
 
-memory_manager = MemoryManager()
+memory_gateway = MemoryGateway()

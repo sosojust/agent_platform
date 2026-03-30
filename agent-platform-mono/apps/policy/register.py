@@ -2,14 +2,14 @@
 保单域注册入口。
 main.py lifespan 自动调用此文件的 register() 函数。
 """
-from core.agent_engine.agents.registry import registry, AgentMeta
+from core.agent_engine.agents.registry import agent_gateway, AgentMeta
 from core.agent_engine.workflows.base_agent import build_base_agent
 from apps.policy.memory_config import POLICY_MEMORY_CONFIG
 from apps.policy.tools.policy_tools import policy_tools
 
 
 def register() -> None:
-    registry.register(AgentMeta(
+    agent_gateway.register(AgentMeta(
         agent_id="policy-assistant",
         name="保单助手",
         description="处理保单查询、保单状态、承保信息、保单列表等业务",

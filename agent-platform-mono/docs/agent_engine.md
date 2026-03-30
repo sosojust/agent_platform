@@ -68,7 +68,7 @@
 
 ## 与 API 的连接
 - 入口：`main.py` 的 `/agent/run` 与 `/agent/stream`
-  - 通过 `registry.get(agent_id)` 获取元数据与 factory
+  - 通过 `agent_gateway.get(agent_id)` 获取元数据与 factory
   - 构建 graph，注入 `checkpointer` 与 `thread_id`
   - 启动运行并返回结果/流式事件
 
@@ -141,7 +141,7 @@
 ## 典型接入流程（apps/示例）
 ```python
 # apps/policy/register.py
-from core.agent_engine.agents.registry import registry, AgentMeta
+from core.agent_engine.agents.registry import agent_gateway, AgentMeta
 from .tools.policy_tools import policy_tools
 from .memory_config import POLICY_MEMORY_CONFIG
 from core.agent_engine.workflows.base_agent import build_base_agent
@@ -150,7 +150,7 @@ def register():
     def factory():
         return build_base_agent(tools=policy_tools, memory_config=POLICY_MEMORY_CONFIG)
 
-    registry.register(AgentMeta(
+    agent_gateway.register(AgentMeta(
         agent_id="policy-assistant",
         name="保单助手",
         description="保单查询与咨询",
@@ -165,7 +165,7 @@ def register():
   - 支持策略：`keyword`、`vector`、`llm`、`hybrid`
     - keyword：按 `keywords/tags` 简单匹配
     - vector：用 `embedding_gateway` 对输入与工具描述向量化后相似度排序
-    - llm：用 `llm_client` 在受控提示下让模型输出工具名列表（白名单校验）
+    - llm：用 `llm_gateway` 在受控提示下让模型输出工具名列表（白名单校验）
     - hybrid：keyword 预筛 + vector 排序，最终经 llm 复核；失败时按加权得分回退
 - 使用边界：
   - apps 提供候选集合（包含 `name/description/keywords/tool`）

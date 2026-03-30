@@ -7,7 +7,7 @@ except Exception:
 from shared.config.settings import settings
 
 
-class RerankService:
+class RerankGateway:
     def __init__(self, model_name: str):
         self._model = FlagReranker(model_name) if FlagReranker else None
 
@@ -25,4 +25,4 @@ class RerankService:
         return [docs[i] for i in idx]
 
 
-rerank_service = RerankService(settings.embedding.rerank_model)
+rerank_gateway = RerankGateway(settings.embedding.rerank_model)

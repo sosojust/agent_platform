@@ -235,7 +235,7 @@
 4. 后续将迭代 Filter DSL、RetrievalPlan、指标上报与 Milvus 适配器
 
 ### 层级防腐总则
-- 上层使用边界：apps/workflows 仅调用 `embedding_gateway`、`rag_pipeline`、`VectorStoreAdapter` 暴露的稳定接口；禁止直接依赖具体后端（Qdrant/Milvus）。
+- 上层使用边界：apps/workflows 仅调用 `embedding_gateway`、`rag_gateway`、`vector_gateway` 暴露的稳定接口；禁止直接依赖具体后端（Qdrant/Milvus）。
 - 后端适配隔离：Filter DSL 的翻译在 VectorStore 适配器层完成；pipeline 只构造通用 DSL 与检索参数。
 - 一致性保障：向量生成统一走 `embedding_gateway`（复用 ai_core Provider），确保查询与入库向量位于同一空间。
 - 可插拔与降级：向量库后端可替换；Rerank 未加载时降级为顺序截取；召回失败返回空并记录可观测事件。

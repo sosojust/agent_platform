@@ -29,7 +29,7 @@ def _headers() -> dict:
     return h
 
 
-class GatewayClient:
+class GatewayProvider:
     def __init__(self) -> None:
         self._client = httpx.AsyncClient(
             base_url=settings.internal_gateway_url,
@@ -60,4 +60,4 @@ class GatewayClient:
         await self._client.aclose()
 
 
-gateway_client = GatewayClient()
+internal_gateway = GatewayProvider()

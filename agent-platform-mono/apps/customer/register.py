@@ -1,12 +1,12 @@
 """客服域注册入口。"""
-from core.agent_engine.agents.registry import registry, AgentMeta
+from core.agent_engine.agents.registry import agent_gateway, AgentMeta
 from core.agent_engine.workflows.base_agent import build_base_agent
 from apps.customer.memory_config import CUSTOMER_MEMORY_CONFIG
 from apps.customer.tools.customer_tools import customer_tools
 
 
 def register() -> None:
-    registry.register(AgentMeta(
+    agent_gateway.register(AgentMeta(
         agent_id="customer-assistant",
         name="客服助手",
         description="处理客户咨询、FAQ 查询、客户信息查询，必要时转接人工",

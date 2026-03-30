@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import pytest
 
 from core.memory_rag.memory.config import MemoryConfig
-from core.memory_rag.memory.manager import MemoryManager
+from core.memory_rag.memory.manager import MemoryGateway
 
 
 class FakeRedis:
@@ -51,7 +51,7 @@ class FakeRedis:
 
 
 async def test_append_short_term_filters_noise_text() -> None:
-    manager = MemoryManager()
+    manager = MemoryGateway()
     fake = FakeRedis()
     manager._client = fake
     cfg = MemoryConfig(memory_noise_filter_enabled=True)
@@ -66,7 +66,7 @@ async def test_append_short_term_filters_noise_text() -> None:
 
 
 async def test_append_short_term_deduplicates_recent_content() -> None:
-    manager = MemoryManager()
+    manager = MemoryGateway()
     fake = FakeRedis()
     manager._client = fake
     cfg = MemoryConfig(memory_noise_filter_enabled=True)
@@ -88,7 +88,7 @@ async def test_append_short_term_deduplicates_recent_content() -> None:
 
 
 async def test_append_short_term_keeps_noise_when_filter_disabled() -> None:
-    manager = MemoryManager()
+    manager = MemoryGateway()
     fake = FakeRedis()
     manager._client = fake
     cfg = MemoryConfig(memory_noise_filter_enabled=False)
@@ -112,7 +112,7 @@ async def test_append_short_term_keeps_noise_when_filter_disabled() -> None:
 
 
 async def test_short_term_trigger_consolidate(monkeypatch: pytest.MonkeyPatch) -> None:
-    manager = MemoryManager()
+    manager = MemoryGateway()
     fake = FakeRedis()
     manager._client = fake
     cfg = MemoryConfig(
@@ -140,7 +140,7 @@ async def test_short_term_trigger_consolidate(monkeypatch: pytest.MonkeyPatch) -
 
 
 async def test_build_memory_context_merges_long_term(monkeypatch: pytest.MonkeyPatch) -> None:
-    manager = MemoryManager()
+    manager = MemoryGateway()
     fake = FakeRedis()
     manager._client = fake
     write_cfg = MemoryConfig(long_term_enabled=False, memory_noise_filter_enabled=False)

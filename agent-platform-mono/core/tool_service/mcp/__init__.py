@@ -1,2 +1,2 @@
-from .service_client import MCPServiceClient
-from .external_client import ExternalMCPClient
+from .service_client import MCPServiceProvider
+from .external_client import ExternalMCPProvider

@@ -1,8 +1,5 @@
 from __future__ import annotations
-import os
 from typing import Any, Dict
-from pathlib import Path
-from shared.config.settings import settings
 from core.ai_core.prompt.provider import (
     PromptProvider,
     LangfusePromptProvider,
@@ -10,7 +7,7 @@ from core.ai_core.prompt.provider import (
 )
 
 
-class PromptManager:
+class PromptGateway:
     def __init__(self):
         self._cache: Dict[str, str] = {}
         self._providers: list[PromptProvider] = [
@@ -38,4 +35,4 @@ class PromptManager:
         return self._render(content, variables)
 
 
-prompt_manager = PromptManager()
+prompt_gateway = PromptGateway()

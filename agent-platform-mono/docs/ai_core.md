@@ -18,12 +18,12 @@
   - `PromptProvider.get(name, version?) -> str|None`
 - 适配器：
   - `LangfusePromptProvider`、`LocalFilePromptProvider`
-- 管理器：
-  - `PromptManager` 组合多个 Provider，按顺序尝试，成功即返回并缓存
-  - 上游仅使用 `prompt_manager.get(name, variables, version)`
+- 网关：
+  - `PromptGateway` 组合多个 Provider，按顺序尝试，成功即返回并缓存
+  - 上游仅使用 `prompt_gateway.get(name, variables, version)`
 
 ### 层级防腐总则
-- 上层使用边界：apps/workflows 仅调用 `llm_client`、`prompt_manager`、`routing` 暴露的稳定接口，不直接操作第三方 SDK。
+- 上层使用边界：apps/workflows 仅调用 `llm_gateway`、`prompt_gateway`、`routing` 暴露的稳定接口，不直接操作第三方 SDK。
 - 下层依赖隔离：所有第三方 SDK（OpenAI/Anthropic/Langfuse 等）只出现在 Provider/Manager 内部；禁止在上层直接 import。
 - 签名与语义稳定：接口不随 SDK 升级改变；错误码、用量（tokens）与超时统一归一化。
 - 可插拔与降级：主提供者不可用时切换备提供者或本地实现；stream 异常可降级为非流式；Prompt 拉取失败使用本地兜底。
@@ -37,7 +37,7 @@
   - 支持 OpenAI/Anthropic/本地模型（settings.llm 配置）
   - 内建：超时、重试（幂等请求）、错误码归一化
 - 提供方式：
-  - 在 workflow 中通过 `llm_client.get_chat(tools, task_type)` 获取绑定工具的推理实例
+  - 在 workflow 中通过 `llm_gateway.get_chat(tools, task_type)` 获取绑定工具的推理实例
 
 #### 防腐层（ACL）设计（LLM 提供者适配）
 - 稳定接口：
@@ -130,13 +130,13 @@
 
 ## 示例调用
 ```python
-from core.ai_core.prompt.manager import prompt_manager
-from core.ai_core.llm.client import llm_client
+from core.ai_core.prompt.manager import prompt_gateway
+from core.ai_core.llm.client import llm_gateway
 
-sys_prompt = prompt_manager.get("policy_agent_system", {"tenant_id": tenant_id})
+sys_prompt = prompt_gateway.get("policy_agent_system", {"tenant_id": tenant_id})
 messages = [{"role": "system", "content": sys_prompt},
             {"role": "user", "content": question}]
-llm = llm_client.get_chat(tools=[], task_type="simple")
+llm = llm_gateway.get_chat(tools=[], task_type="simple")
 resp = await llm.ainvoke(messages)
 text = resp.content
 ```

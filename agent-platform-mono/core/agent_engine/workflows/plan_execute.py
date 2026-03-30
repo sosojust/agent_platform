@@ -12,7 +12,7 @@ from core.agent_engine.workflows.base_agent import (
     make_update_memory_node,
 )
 from core.agent_engine.workflows.state import OrchestratorState
-from core.ai_core.llm.client import llm_client
+from core.ai_core.llm.client import llm_gateway
 from core.memory_rag.memory.config import DEFAULT_MEMORY_CONFIG
 from shared.config.settings import settings
 
@@ -52,7 +52,7 @@ def build_plan_execute_graph(meta: AgentMeta) -> Any:
             return {}
         step = plan.pop(0)
         goal = str(step.get("goal", ""))
-        llm = llm_client.get_chat([], task_type="complex")
+        llm = llm_gateway.get_chat([], task_type="complex")
         messages = [
             SystemMessage(content="你是任务执行器。请执行当前步骤并给出结果，简洁准确。"),
             HumanMessage(content=goal),
@@ -91,7 +91,7 @@ def build_plan_execute_graph(meta: AgentMeta) -> Any:
             f"{item.get('step_id')}: {item.get('result', '')}"
             for item in state.get("past_steps", [])
         )
-        llm = llm_client.get_chat([], task_type="simple")
+        llm = llm_gateway.get_chat([], task_type="simple")
         messages = [
             SystemMessage(content="你是总结助手。请基于步骤执行结果给出最终答复。"),
             HumanMessage(content=summary),

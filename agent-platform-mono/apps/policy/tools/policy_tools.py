@@ -1,9 +1,9 @@
 """保单域 MCP Tools。"""
 from mcp.server.fastmcp import FastMCP
-from core.tool_service.client.gateway import gateway_client
+from core.tool_service.client.gateway import internal_gateway
 from shared.logging.logger import get_logger
 from core.tool_service.skills.base import skill
-from core.tool_service import registry as tool_registry
+from core.tool_service import tool_gateway
 
 logger = get_logger(__name__)
 mcp = FastMCP("policy-domain")
@@ -16,7 +16,7 @@ async def query_policy_basic(policy_id: str) -> dict:
     当用户询问保单状态、生效日期、到期日期、承保金额、投保人或被保险人时调用。
     """
     try:
-        data = await gateway_client.get(f"/policy-service/api/v1/policies/{policy_id}/basic")
+        data = await internal_gateway.get(f"/policy-service/api/v1/policies/{policy_id}/basic")
         return {
             "policy_id": data["policyId"],
             "status": data["status"],
@@ -40,7 +40,7 @@ async def list_policies_by_company(
     status 可选：ACTIVE（有效）、EXPIRED（到期）、ALL（全部）。
     """
     try:
-        data = await gateway_client.get(
+        data = await internal_gateway.get(
             f"/policy-service/api/v1/companies/{company_id}/policies",
             params={"status": status, "page": page, "pageSize": page_size},
         )
@@ -71,6 +71,6 @@ async def _format_policy_id(args: dict) -> dict:
 async def _mcp_demo_policy_basic(args: dict) -> dict:
     try:
         pid = str(args.get("policy_id", "")).strip()
-        return await tool_registry.invoke("mcp:query_policy_basic", {"policy_id": pid})
+        return await tool_gateway.invoke("mcp:query_policy_basic", {"policy_id": pid})
     except Exception as e:
         return {"error": str(e)}

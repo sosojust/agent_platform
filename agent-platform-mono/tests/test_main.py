@@ -59,8 +59,8 @@ async def test_run_agent_returns_conversation_id(client: AsyncClient, monkeypatc
         "factory": lambda self: mock_agent_instance
     })()
     
-    # Patch main.registry.get
-    monkeypatch.setattr("main.registry.get", lambda x: mock_agent_model)
+    # Patch main.agent_gateway.get
+    monkeypatch.setattr("main.agent_gateway.get", lambda x: mock_agent_model)
     resp = await client.post("/agent/run", json={
         "agent_id": "policy-assistant",
         "input": "查询保单 P2024001",

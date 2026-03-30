@@ -4,7 +4,7 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 
-class ExternalMCPClient:
+class ExternalMCPProvider:
     def __init__(self, base_url: str, token: Optional[str] = None, timeout: int | float = 30) -> None:
         self._base_url = base_url.rstrip("/")
         self._token = token

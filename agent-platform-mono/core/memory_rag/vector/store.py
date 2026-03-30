@@ -8,7 +8,7 @@ from core.memory_rag.embedding.gateway import embedding_gateway
 from core.memory_rag.rag.filters import build_qdrant_filter
 
 
-class QdrantStore(VectorStoreAdapter):
+class QdrantProvider(VectorStoreAdapter):
     def __init__(self, url: str):
         self._client = QdrantClient(url=url)
 
@@ -101,6 +101,6 @@ class QdrantStore(VectorStoreAdapter):
 
 
 if settings.vector_db.backend.lower() == "qdrant":
-    vector_store = QdrantStore(settings.vector_db.qdrant_url)
+    vector_gateway = QdrantProvider(settings.vector_db.qdrant_url)
 else:
-    vector_store = QdrantStore(settings.vector_db.qdrant_url)
+    vector_gateway = QdrantProvider(settings.vector_db.qdrant_url)

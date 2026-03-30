@@ -5,8 +5,8 @@ import math
 import re
 
 from core.memory_rag.embedding.gateway import embedding_gateway
-from core.ai_core.llm.client import llm_client
-from core.ai_core.prompt.manager import prompt_manager
+from core.ai_core.llm.client import llm_gateway
+from core.ai_core.prompt.manager import prompt_gateway
 
 
 class ToolCandidate:
@@ -57,15 +57,15 @@ async def _llm_select(input_text: str, candidates: List[ToolCandidate], top_k: i
     items = [{"name": c.name, "desc": c.description, "keywords": c.keywords} for c in candidates]
     candidates_json = json.dumps(items, ensure_ascii=False)
     try:
-        sys = prompt_manager.get("tool_router_select_sys", {"top_k": top_k})
-        content = prompt_manager.get(
+        sys = prompt_gateway.get("tool_router_select_sys", {"top_k": top_k})
+        content = prompt_gateway.get(
             "tool_router_select_user",
             {"input_text": input_text, "candidates_json": candidates_json},
         )
     except Exception:
         sys = "你是工具选择器。根据输入选择最相关的工具名称列表，返回严格的 JSON 数组，例如：[\"tool_a\",\"tool_b\"]。最多选择 {} 个。".format(top_k)
         content = "输入: {}\n候选工具: {}\n请只返回 JSON 数组。".format(input_text, candidates_json)
-    llm = llm_client.get_chat([], task_type="complex")
+    llm = llm_gateway.get_chat([], task_type="complex")
     messages = [{"role": "system", "content": sys}, {"role": "user", "content": content}]
     resp = await llm.ainvoke(messages)
     try:

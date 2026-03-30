@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Any, Callable, Dict, Optional, Awaitable
-from core.tool_service.registry import registry
+from core.tool_service.registry import tool_gateway
 
 
 def skill(
@@ -10,7 +10,7 @@ def skill(
 ):
     def decorator(func: Callable[[Dict[str, Any]], Any | Awaitable[Any]]):
         reg_name = name or func.__name__
-        registry.register_skill(
+        tool_gateway.register_skill(
             reg_name,
             func,
             input_schema=input_schema,

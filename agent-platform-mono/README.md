@@ -61,22 +61,22 @@ agent-platform-mono/
 
 ### core/ai_core
 
-- `prompt/manager.py`：Prompt 拉取与本地兜底
-- `llm/client.py`：统一 LLM 客户端封装
+- `prompt/manager.py`：PromptGateway（统一 Prompt 入口，内部 Provider 链路兜底）
+- `llm/client.py`：LLMGateway（统一 LLM 入口，屏蔽三方 SDK 差异）
 - `routing/router.py`：按任务类型路由模型
 - `embedding/provider.py`：Embedding 抽象与默认实现
 
 ### core/memory_rag
 
-- `memory/manager.py`：短期记忆写入治理、长期记忆读写、短转长触发与上下文聚合
+- `memory/manager.py`：MemoryGateway（短期记忆写入治理、长期记忆读写、短转长触发与上下文聚合）
 - `memory/config.py`：记忆/RAG 策略配置（含新增 M1/M2 配置项）
-- `rag/pipeline.py`：召回与精排流水线
-- `vector/store.py`：当前向量库实现为 Qdrant 适配器
+- `rag/pipeline.py`：RagGateway（召回与精排流水线）
+- `vector/store.py`：VectorGateway（当前向量库实现为 QdrantProvider）
 - `rag/filters.py`：Filter DSL 到后端过滤表达式转换
 
 ### core/tool_service
 
-- `registry.py`：统一工具列表与调用入口
+- `registry.py`：ToolGateway（统一工具列表与调用入口）
 - `mcp/*.py`：内部/外部 MCP 适配
 - `client/gateway.py`：业务网关调用与错误归一化
 
@@ -202,6 +202,7 @@ ruff check .
 - 2026-03-30
   - 基于近期架构与 Memory 模块沟通，完整重构 README：更新项目介绍、分层职责、依赖配置、接口说明、质量门禁与 Memory 进展
   - 统一命名：`core/memory_rag/embedding/gateway.py` 对外实例命名为 `embedding_gateway`，并同步更新 RAG、Memory、ToolRouter、向量存储与就绪检查引用
+  - 进一步统一 ACL 命名：对上统一 `*_gateway`（`llm_gateway`/`prompt_gateway`/`memory_gateway`/`rag_gateway`/`tool_gateway`/`agent_gateway`），对下统一 `*_provider`（含 MCP 与外部依赖适配）
 
 - 2026-03-27
   - 新增双模式动态编排：`command` 与 `plan_execute`，运行时由 `orchestrator_factory` 按租户/Agent/输入自动选择

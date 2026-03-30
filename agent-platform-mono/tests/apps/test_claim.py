@@ -10,7 +10,7 @@ async def test_query_claim_status_approved():
         "currentStep": "待赔付", "submitDate": "2024-06-01",
         "expectedCompleteDate": "2024-06-10", "rejectReason": None,
     }
-    with patch("apps.claim.tools.claim_tools.gateway_client.get",
+    with patch("apps.claim.tools.claim_tools.internal_gateway.get",
                new=AsyncMock(return_value=mock_data)):
         result = await query_claim_status("C2024001")
     assert result["status"] == "APPROVED"
@@ -24,7 +24,7 @@ async def test_query_claim_status_rejected():
         "currentStep": "审核完成", "submitDate": "2024-06-01",
         "expectedCompleteDate": None, "rejectReason": "材料不齐全，缺少诊断证明",
     }
-    with patch("apps.claim.tools.claim_tools.gateway_client.get",
+    with patch("apps.claim.tools.claim_tools.internal_gateway.get",
                new=AsyncMock(return_value=mock_data)):
         result = await query_claim_status("C2024002")
     assert result["status"] == "REJECTED"

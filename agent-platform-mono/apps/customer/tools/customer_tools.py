@@ -1,6 +1,6 @@
 """客服域 MCP Tools。"""
 from mcp.server.fastmcp import FastMCP
-from core.tool_service.client.gateway import gateway_client
+from core.tool_service.client.gateway import internal_gateway
 from shared.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -15,7 +15,7 @@ async def query_customer_info(customer_id: str) -> dict:
     不含财务数据。
     """
     try:
-        data = await gateway_client.get(
+        data = await internal_gateway.get(
             f"/customer-service/api/v1/customers/{customer_id}"
         )
         return {
@@ -39,7 +39,7 @@ async def search_faq(question: str, top_k: int = 3) -> dict:
     比 RAG 检索更快，适合标准化问题。
     """
     try:
-        data = await gateway_client.get(
+        data = await internal_gateway.get(
             "/customer-service/api/v1/faq/search",
             params={"q": question, "topK": top_k},
         )
@@ -62,7 +62,7 @@ async def transfer_to_human(reason: str, conversation_id: str) -> dict:
     reason 填写转接原因，便于人工客服快速了解背景。
     """
     try:
-        data = await gateway_client.post(
+        data = await internal_gateway.post(
             "/customer-service/api/v1/transfer",
             body={"reason": reason, "sessionId": conversation_id},
         )

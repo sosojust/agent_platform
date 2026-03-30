@@ -20,7 +20,7 @@
 - 位置：`core/tool_service/registry.py`
 - 能力：
   - `register_skill(name, func, input_schema?, output_schema?)`
-  - `register_mcp_client(provider, client)`（client 需实现 `list_tools` 与 `invoke`）
+  - `register_mcp_provider(provider, mcp_provider)`（mcp_provider 需实现 `list_tools` 与 `invoke`）
   - `list_tools() -> list[dict]`
   - `invoke(tool_name: str, arguments: dict) -> Any`
 - 行为：
@@ -41,8 +41,8 @@
   - `external_client.py`：通用外部 MCP 客户端
 - 提供方式：
   - 在应用启动阶段注册：
-    - 内部：`await registry.register_mcp_client("mcp", MCPServiceClient())`
-    - 外部：遍历 `settings.external_mcp_endpoints` 注册 `ExternalMCPClient`
+    - 内部：`await tool_gateway.register_mcp_provider("mcp", MCPServiceProvider())`
+    - 外部：遍历 `settings.external_mcp_endpoints` 注册 `ExternalMCPProvider`
 
 ### 4) HTTP API
 - 位置：`main.py`
@@ -96,7 +96,7 @@
   - 下游网关协议变更只更新适配器，不影响工具调用层
 
 ## 层级防腐总则
-- 上层使用边界：apps 与编排层仅通过 `registry.list_tools()` 与 `registry.invoke()` 使用工具能力；禁止直接调用外部 MCP 或业务网关。
+- 上层使用边界：apps 与编排层仅通过 `tool_gateway.list_tools()` 与 `tool_gateway.invoke()` 使用工具能力；禁止直接调用外部 MCP 或业务网关。
 - 下层依赖隔离：外部系统（mcp-service/外部 MCP/业务网关）的协议与认证差异全部封装在适配器内；上层不 import 下游 SDK。
 - 签名与语义稳定：`list_tools/invoke` 的接口语义稳定；错误码与消息统一归一化，避免上层处理下游差异。
 - 可插拔与降级：新增或替换 MCP 提供者只需注册适配器；调用失败可按策略重试或降级（返回一致的错误语义）。
@@ -122,9 +122,9 @@ async def format_policy_id(args: dict) -> dict:
 
 ### 2) 调用 MCP 工具（透传）
 ```python
-from core.tool_service import registry
+from core.tool_service import tool_gateway
 
-res = await registry.invoke("mcp:query_policy_basic", {"policy_id": "P2024001"})
+res = await tool_gateway.invoke("mcp:query_policy_basic", {"policy_id": "P2024001"})
 ```
 
 ### 3) HTTP 调试

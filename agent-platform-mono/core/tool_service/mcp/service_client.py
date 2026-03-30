@@ -6,7 +6,7 @@ from shared.config.settings import settings
 from shared.middleware.tenant import get_current_tenant_id, get_current_trace_id
 
 
-class MCPServiceClient:
+class MCPServiceProvider:
     def __init__(self, base_url: Optional[str] = None, timeout: int | float = 30) -> None:
         self._base_url = base_url or settings.mcp_service_url
         self._timeout = timeout

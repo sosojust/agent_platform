@@ -49,4 +49,4 @@ class AgentRegistry:
         return agent_id in self._registry
 
 
-registry = AgentRegistry()
+agent_gateway = AgentRegistry()

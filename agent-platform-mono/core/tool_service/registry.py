@@ -3,7 +3,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol
 import asyncio
 
 
-class McpClient(Protocol):
+class McpProvider(Protocol):
     async def list_tools(self) -> List[Dict[str, Any]]: ...
     async def invoke(self, tool: str, arguments: Dict[str, Any]) -> Any: ...
 
@@ -32,10 +32,10 @@ class ToolEntry:
         return res
 
 
-class ToolRegistry:
+class ToolGateway:
     def __init__(self) -> None:
         self._tools: Dict[str, ToolEntry] = {}
-        self._mcp_clients: Dict[str, McpClient] = {}
+        self._mcp_providers: Dict[str, McpProvider] = {}
 
     def register_skill(
         self,
@@ -61,17 +61,17 @@ class ToolRegistry:
         )
         self._tools[name] = entry
 
-    async def register_mcp_client(self, provider: str, client: McpClient) -> None:
-        self._mcp_clients[provider] = client
-        tools = await client.list_tools()
+    async def register_mcp_provider(self, provider: str, mcp_provider: McpProvider) -> None:
+        self._mcp_providers[provider] = mcp_provider
+        tools = await mcp_provider.list_tools()
         for t in tools:
             t_name = t.get("name") or ""
             input_schema = t.get("inputSchema") or t.get("input_schema") or {}
             output_schema = t.get("outputSchema") or t.get("output_schema") or {}
             fq_name = f"{provider}:{t_name}" if provider else t_name
 
-            async def caller(args: Dict[str, Any], _client: McpClient = client, _tool=t_name) -> Any:
-                return await _client.invoke(_tool, args)
+            async def caller(args: Dict[str, Any], _provider: McpProvider = mcp_provider, _tool=t_name) -> Any:
+                return await _provider.invoke(_tool, args)
 
             self._tools[fq_name] = ToolEntry(
                 name=fq_name,
@@ -103,4 +103,4 @@ class ToolRegistry:
         return await entry(arguments)
 
 
-registry = ToolRegistry()
+tool_gateway = ToolGateway()

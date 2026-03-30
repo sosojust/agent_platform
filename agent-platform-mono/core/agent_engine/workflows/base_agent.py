@@ -9,13 +9,12 @@ import operator
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from core.ai_core.llm.client import llm_client
+from core.ai_core.llm.client import llm_gateway
 
 from core.memory_rag.memory.config import MemoryConfig, DEFAULT_MEMORY_CONFIG
-from core.memory_rag.memory.manager import memory_manager
-from core.memory_rag.rag.pipeline import rag_pipeline
-from core.ai_core.prompt.manager import prompt_manager
-from shared.config.settings import settings
+from core.memory_rag.memory.manager import memory_gateway
+from core.memory_rag.rag.pipeline import rag_gateway
+from core.ai_core.prompt.manager import prompt_gateway
 from shared.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -40,7 +39,7 @@ def make_retrieve_memory_node(cfg: MemoryConfig):
         last_input = next(
             (m.content for m in reversed(state["messages"]) if isinstance(m, HumanMessage)), ""
         )
-        context = await memory_manager.build_memory_context(
+        context = await memory_gateway.build_memory_context(
             conversation_id=state["conversation_id"],
             query=str(last_input),
             tenant_id=state["tenant_id"],
@@ -55,7 +54,7 @@ def make_retrieve_rag_node(cfg: MemoryConfig):
         last_input = next(
             (m.content for m in reversed(state["messages"]) if isinstance(m, HumanMessage)), ""
         )
-        docs = await rag_pipeline.retrieve(
+        docs = await rag_gateway.retrieve(
             query=str(last_input),
             tenant_id=state["tenant_id"],
             collection_type=cfg.rag_collection_type,
@@ -68,7 +67,7 @@ def make_retrieve_rag_node(cfg: MemoryConfig):
 
 
 def make_llm_reason_node(tools: list, system_prompt_key: str, cfg: MemoryConfig):
-    llm = llm_client.get_chat(tools, task_type="complex")
+    llm = llm_gateway.get_chat(tools, task_type="complex")
 
     async def llm_reason(state: BaseAgentState) -> dict:
         if state["step_count"] >= cfg.max_steps:
@@ -76,7 +75,7 @@ def make_llm_reason_node(tools: list, system_prompt_key: str, cfg: MemoryConfig)
             return {"messages": [], "step_count": state["step_count"]}
 
         system_parts = [
-            prompt_manager.get(system_prompt_key,
+            prompt_gateway.get(system_prompt_key,
                                variables={"tenant_id": state["tenant_id"]}),
         ]
         if state.get("memory_context"):
@@ -95,7 +94,7 @@ def make_update_memory_node(cfg: MemoryConfig):
     async def update_memory(state: BaseAgentState) -> dict:
         for msg in state["messages"][-2:]:
             role = "user" if isinstance(msg, HumanMessage) else "assistant"
-            await memory_manager.append_short_term(
+            await memory_gateway.append_short_term(
                 conversation_id=state["conversation_id"],
                 role=role,
                 content=str(msg.content),

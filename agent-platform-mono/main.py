@@ -35,12 +35,12 @@ from shared.middleware.tenant import (
 )
 from shared.models.schemas import AgentRunRequest, AgentRunResponse
 from shared.fastapi_utils import ReadinessRegistry, make_health_router, register_error_handlers
-from core.agent_engine.agents.registry import registry
+from core.agent_engine.agents.registry import agent_gateway
 from core.agent_engine.checkpoints.redis_checkpoint import get_checkpointer
 from core.agent_engine.orchestrator_factory import build_orchestrator
 from core.agent_engine.workflows.state import make_initial_state
-from core.tool_service.client.gateway import gateway_client
-from core.tool_service import registry as tool_registry
+from core.tool_service.client.gateway import internal_gateway
+from core.tool_service.registry import tool_gateway
 
 configure_logging()
 logger = get_logger(__name__)
@@ -54,8 +54,8 @@ readiness = ReadinessRegistry()
 
 async def _check_redis() -> bool:
     try:
-        from core.memory_rag.memory.manager import memory_manager
-        r = await memory_manager._r()
+        from core.memory_rag.memory.manager import memory_gateway
+        r = await memory_gateway._r()
         await r.ping()
         return True
     except Exception:
@@ -64,8 +64,8 @@ async def _check_redis() -> bool:
 
 async def _check_milvus() -> bool:
     try:
-        from core.memory_rag.vector.store import vector_store
-        vector_store._client.list_collections()
+        from core.memory_rag.vector.store import vector_gateway
+        vector_gateway._client.list_collections()
         return True
     except Exception:
         return False
@@ -82,8 +82,8 @@ async def _check_qdrant() -> bool:
 
 async def _check_prompts() -> bool:
     try:
-        from core.ai_core.prompt.manager import prompt_manager
-        _ = prompt_manager.get("policy_agent_system", {"tenant_id": "ready_check"})
+        from core.ai_core.prompt.manager import prompt_gateway
+        _ = prompt_gateway.get("policy_agent_system", {"tenant_id": "ready_check"})
         return True
     except Exception:
         return False
@@ -91,17 +91,17 @@ async def _check_prompts() -> bool:
 async def _check_rag() -> bool:
     try:
         from core.memory_rag.embedding.gateway import embedding_gateway
-        from core.memory_rag.vector.store import vector_store
+        from core.memory_rag.vector.store import vector_gateway
         embedding_gateway.embed(["ready"])
-        vector_store.list_collections()
+        vector_gateway.list_collections()
         return True
     except Exception:
         return False
 
 async def _check_rerank_available() -> bool:
     try:
-        from core.memory_rag.rerank.service import rerank_service
-        return getattr(rerank_service, "_model", None) is not None
+        from core.memory_rag.rerank.service import rerank_gateway
+        return getattr(rerank_gateway, "_model", None) is not None
     except Exception:
         return False
 
@@ -140,9 +140,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("warming_up_models")
     try:
         from core.memory_rag.embedding.gateway import embedding_gateway
-        from core.memory_rag.rerank.service import rerank_service
+        from core.memory_rag.rerank.service import rerank_gateway
         embedding_gateway.embed(["warmup"])
-        rerank_service.rerank("warmup", ["test"], top_k=1)
+        rerank_gateway.rerank("warmup", ["test"], top_k=1)
         readiness.mark_ready("models")        # 模型加载完成
         logger.info("models_ready")
     except Exception as e:
@@ -171,11 +171,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # 5. 聚合 Tool Service：内部 MCP + 外部 MCP
     try:
-        from core.tool_service.mcp import MCPServiceClient, ExternalMCPClient
-        await tool_registry.register_mcp_client("mcp", MCPServiceClient())
+        from core.tool_service.mcp.service_client import MCPServiceProvider
+        from core.tool_service.mcp.external_client import ExternalMCPProvider
+        await tool_gateway.register_mcp_provider("mcp", MCPServiceProvider())
         for idx, endpoint in enumerate(settings.external_mcp_endpoints or []):
-            await tool_registry.register_mcp_client(f"ext{idx+1}", ExternalMCPClient(endpoint, token=(settings.external_mcp_token or None)))
-        logger.info("tools_registered", count=len(tool_registry.list_tools()))
+            await tool_gateway.register_mcp_provider(f"ext{idx+1}", ExternalMCPProvider(endpoint, token=(settings.external_mcp_token or None)))
+        logger.info("tools_registered", count=len(tool_gateway.list_tools()))
     except Exception as e:
         logger.error("tool_service_init_failed", error=str(e))
 
@@ -190,7 +191,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     # ── 关闭阶段 ──
-    await gateway_client.close()
+    await internal_gateway.close()
     logger.info("agent_platform_stopped")
 
 
@@ -233,14 +234,14 @@ class ToolInvokeRequest(BaseModel):
 @app.get("/tools", summary="列出可用工具")
 async def list_tools(request: Request) -> list[dict]:
     _require_app_auth(dict(request.headers))
-    return tool_registry.list_tools()
+    return tool_gateway.list_tools()
 
 
 @app.post("/tools/invoke", summary="调用工具")
 async def invoke_tool(req: ToolInvokeRequest, request: Request) -> dict:
     _require_app_auth(dict(request.headers))
     try:
-        result = await tool_registry.invoke(req.tool, req.arguments)
+        result = await tool_gateway.invoke(req.tool, req.arguments)
         if isinstance(result, dict):
             return result
         return {"result": result}
@@ -258,12 +259,12 @@ async def run_agent(request: AgentRunRequest) -> AgentRunResponse:
     set_current_conversation_id(conversation_id)
     set_current_thread_id(conversation_id)
 
-    agent_meta = registry.get(request.agent_id)
+    agent_meta = agent_gateway.get(request.agent_id)
     if not agent_meta:
         raise HTTPException(
             status_code=404,
             detail=f"Agent '{request.agent_id}' not found. "
-                   f"Available: {[a.agent_id for a in registry.list_all()]}",
+                   f"Available: {[a.agent_id for a in agent_gateway.list_all()]}",
         )
 
     initial_state = make_initial_state(
@@ -300,7 +301,7 @@ async def stream_agent(request: AgentRunRequest) -> StreamingResponse:
     set_current_conversation_id(conversation_id)
     set_current_thread_id(conversation_id)
 
-    agent_meta = registry.get(request.agent_id)
+    agent_meta = agent_gateway.get(request.agent_id)
     if not agent_meta:
         raise HTTPException(status_code=404,
                             detail=f"Agent '{request.agent_id}' not found")
@@ -350,5 +351,5 @@ async def list_agents() -> list[dict]:
     return [
         {"agent_id": a.agent_id, "name": a.name,
          "description": a.description, "tags": a.tags, "version": a.version}
-        for a in registry.list_all()
+        for a in agent_gateway.list_all()
     ]
