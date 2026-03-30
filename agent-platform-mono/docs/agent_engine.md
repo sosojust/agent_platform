@@ -164,7 +164,7 @@ def register():
   - `select_tools(input_text, tenant_id, candidates, strategy='hybrid', top_k=3) -> list[tool]`
   - 支持策略：`keyword`、`vector`、`llm`、`hybrid`
     - keyword：按 `keywords/tags` 简单匹配
-    - vector：用 `embedding_service` 对输入与工具描述向量化后相似度排序
+    - vector：用 `embedding_gateway` 对输入与工具描述向量化后相似度排序
     - llm：用 `llm_client` 在受控提示下让模型输出工具名列表（白名单校验）
     - hybrid：keyword 预筛 + vector 排序，最终经 llm 复核；失败时按加权得分回退
 - 使用边界：

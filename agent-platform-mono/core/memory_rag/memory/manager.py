@@ -6,7 +6,7 @@ from redis.asyncio import Redis
 from shared.config.settings import settings
 from shared.logging.logger import get_logger
 from core.memory_rag.memory.config import MemoryConfig
-from core.memory_rag.embedding.service import embedding_service
+from core.memory_rag.embedding.gateway import embedding_gateway
 from core.memory_rag.vector.store import vector_store
 
 logger = get_logger(__name__)
@@ -126,7 +126,7 @@ class MemoryManager:
         use_top_k = top_k or config.long_term_retrieve_top_k
         if use_top_k <= 0:
             return []
-        query_vector = embedding_service.embed([query])[0]
+        query_vector = embedding_gateway.embed([query])[0]
         collection = self._memory_collection_name(tenant_id)
         filters = self._build_long_term_filter(tenant_id=tenant_id, memory_types=memory_types)
         try:

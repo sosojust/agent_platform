@@ -1,7 +1,7 @@
 # 架构约束（Architecture Constraints）
 
 ## 层级边界
-- apps/workflows 仅通过平台稳定接口使用能力：`agent_engine(factory/run/stream)`, `tool_service(list_tools/invoke)`, `ai_core(llm_client/prompt_manager/routing)`, `memory_rag(embedding_service/rag_pipeline)`
+- `apps/` 仅通过平台稳定接口使用能力：`agent_engine(factory/run/stream)`, `tool_service(list_tools/invoke)`, `ai_core(llm_client/prompt_manager/routing)`, `memory_rag(embedding_service/rag_pipeline)`
 - 禁止在上层直接 import 第三方 SDK（OpenAI/Anthropic/Langfuse/Qdrant 等）；差异由各层适配器/管理器内部屏蔽
 - 多租户隔离全链路透传：`tenant_id` 必须出现在 workflow 状态、工具调用、检索过滤与日志中
 

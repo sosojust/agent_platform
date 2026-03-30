@@ -1,264 +1,221 @@
 # Agent Platform
 
-团险业务 Agent Platform，单一 Python 服务，FastAPI + LangGraph 实现。
+团险业务多租户 Agent 平台，采用单体 Python 服务形态，基于 FastAPI + LangGraph 实现可扩展编排、工具调用与记忆/RAG 能力。
 
----
+## 项目介绍
 
-## 目录结构总览
+本项目聚焦以下目标：
 
-```
-agent-platform/
-│
-├── main.py                        # FastAPI 启动入口，lifespan 自动扫描注册所有域
-├── pyproject.toml                 # 依赖管理（Python 3.11+）
-├── .env.example                   # 环境变量模板
-├── Dockerfile                     # 生产镜像
-├── docker-compose.dev.yml         # 本地开发基础设施（Milvus/Redis/Langfuse 等）
-│
-├── shared/                        # 跨所有模块的公共基础设施，不含业务逻辑
-│   ├── config/
-│   │   ├── settings.py            # 所有环境变量统一定义（pydantic-settings），全局单例
-│   │   └── nacos.py               # Nacos 配置接入，动态参数热更新
-│   ├── logging/
-│   │   └── logger.py              # structlog JSON 结构化日志，自动携带 tenant_id/trace_id
-│   ├── middleware/
-│   │   └── tenant.py              # 从 Header 提取 X-Tenant-Id，注入 contextvars
-│   └── models/
-│       └── schemas.py             # 跨层公用 Pydantic 模型（请求/响应/事件）
-│
-├── core/                          # 核心平台服务层
-│   ├── ai_core/                   # AI 能力层 (大模型与 Prompt)
-│   │   ├── llm/
-│   │   │   └── client.py          # LiteLLM 统一封装，Langfuse 上报
-│   │   ├── prompt/
-│   │   │   └── manager.py         # Prompt 统一管理 (Langfuse 拉取/本地兜底)
-│   │   └── routing/
-│   │       └── router.py          # 模型路由 (大小模型、本地模型切换)
-│   │
-│   ├── memory_rag/                # 数据智能层 (记忆与知识库)
-│   │   ├── embedding/
-│   │   │   └── service.py         # bge-m3 本地 Embedding
-│   │   ├── rerank/
-│   │   │   └── service.py         # bge-reranker 本地精排
-│   │   ├── vector/
-│   │   │   └── store.py           # Milvus 向量库操作
-│   │   ├── memory/
-│   │   │   ├── manager.py         # 长期/短期记忆管理 (mem0/redis)
-│   │   │   └── config.py          # 各域记忆策略配置基类
-│   │   └── rag/
-│   │       └── pipeline.py        # 统一 RAG 流程
-│   │
-│   ├── tool_service/              # MCP 工具服务层 (与业务系统对接)
-│   │   └── client/
-│   │       └── gateway.py         # 统一网关客户端 (带鉴权和租户头)
-│   │
-│   └── agent_engine/              # 核心编排框架层 (LangGraph)
-│       ├── agents/
-│       │   └── registry.py        # 全局 Agent 注册表
-│       ├── workflows/
-│       │   └── base_agent.py      # 可复用的基础 LangGraph Graph
-│       └── checkpoints/
-│           └── redis_checkpoint.py# 中断恢复与 Human-in-the-loop
-│
-├── apps/                       # 业务域：每个域自成体系，对框架层零侵入
-│   ├── __init__.py                # 域自动发现入口
-│   │
-│   ├── policy/                    # 保单域
-│   │   ├── register.py            # 域注册入口：声明 Agent、Tools、Memory 策略
-│   │   ├── policy_agent.py        # 保单专属 LangGraph workflow
-│   │   ├── memory_config.py       # 保单域 Memory 策略（短平快，不需要长期记忆）
-│   │   ├── tools/
-│   │   │   ├── policy_tools.py    # 保单查询、列表等 MCP tools
-│   │   │   └── underwrite_tools.py# 核保相关 MCP tools
-│   │   └── prompts/
-│   │       └── system.txt         # 保单域 system prompt 模板
-│   │
-│   ├── claim/                     # 理赔域
-│   │   ├── register.py
-│   │   ├── claim_agent.py         # 理赔专属 workflow（多步骤，需要文档核验）
-│   │   ├── memory_config.py       # 理赔域 Memory 策略（长期记忆，保留完整理赔历史）
-│   │   ├── tools/
-│   │   │   ├── claim_tools.py     # 理赔状态查询、申请提交等 MCP tools
-│   │   │   └── doc_verify_tools.py# 材料核验 MCP tools
-│   │   └── prompts/
-│   │       └── system.txt
-│   │
-│   └── customer/                  # 客服域
-│       ├── register.py
-│       ├── customer_agent.py      # 客服专属 workflow（FAQ 优先，兜底人工转接）
-│       ├── memory_config.py       # 客服域 Memory 策略（中等，记录偏好和历史问题）
-│       ├── tools/
-│       │   ├── customer_tools.py  # 客户信息查询 MCP tools
-│       │   └── faq_tools.py       # FAQ 检索 MCP tools
-│       └── prompts/
-│           └── system.txt
-│
-└── tests/                         # 测试，与 src 目录结构镜像
-    ├── shared/
-    ├── core.ai_core/
-    ├── core.memory_rag/
-    ├── core.tool_service/
-    ├── core.agent_engine/
-    └── apps/
-        ├── test_policy.py
-        ├── test_claim.py
-        └── test_customer.py
+- 以统一稳定接口承载 Agent 编排、工具服务、模型调用、记忆与检索能力
+- 以多租户为一等公民，贯穿状态、检索、工具调用、日志与链路追踪
+- 以防腐层隔离三方 SDK 差异，确保上层业务代码稳定演进
+- 以可观测与可降级为底线，支持 /health、/ready 与关键链路打点
+
+## 项目架构
+
+### 分层架构（核心边界）
+
+- `apps/`：业务域编排与注册（如 policy/claim/customer），通过平台稳定接口接入能力
+- `core/agent_engine`：工作流编排与模式选择（command / plan_execute）
+- `core/tool_service`：工具注册与调用统一入口（MCP/Skill）
+- `core/ai_core`：Prompt 管理、LLM 客户端与模型路由
+- `core/memory_rag`：Embedding、向量检索、记忆管理、RAG Pipeline
+- `shared`：配置、日志、中间件、跨层模型
+
+### 关键调用链路
+
+1. 请求进入 `main.py`，中间件注入 `tenant_id/conversation_id/thread_id/trace_id`
+2. `agent_engine` 根据 agent 元数据与输入选择编排模式
+3. 编排节点通过 `ai_core` 调 LLM，通过 `tool_service` 调工具，通过 `memory_rag` 做记忆与检索
+4. 输出结果并记录统一结构化日志，状态由 checkpoint 管理
+
+### 目录结构（精简）
+
+```text
+agent-platform-mono/
+├── main.py
+├── pyproject.toml
+├── .env.example
+├── shared/
+├── core/
+│   ├── ai_core/
+│   ├── memory_rag/
+│   ├── tool_service/
+│   └── agent_engine/
+├── apps/
+│   ├── policy/
+│   ├── claim/
+│   └── customer/
+├── tests/
+└── docs/
 ```
 
----
+## 模块职责
 
-## 模块职责说明
+### shared
 
-### shared/ — 基础设施层
-不含任何业务逻辑。所有模块都可以 import，但 shared 本身不 import 任何业务模块。
+- `config/settings.py`：统一配置入口（pydantic-settings）
+- `config/nacos.py`：Nacos 动态配置加载
+- `logging/logger.py`：JSON 结构化日志
+- `middleware/tenant.py`：租户与链路上下文注入
 
-| 文件 | 职责 |
-|------|------|
-| `config/settings.py` | pydantic-settings 统一管理所有环境变量，启动时校验，缺少必填项直接报错 |
-| `config/nacos.py` | 接入 Nacos，热更新动态参数（模型路由策略、RAG 阈值、功能开关等） |
-| `logging/logger.py` | structlog，输出 JSON，自动携带 tenant_id / trace_id，生产日志直接采集 |
-| `middleware/tenant.py` | 从 Header 提取四元：X-Tenant-Id / X-Conversation-Id / X-Thread-Id / X-Trace-Id（可选 X-User-Token），写入 contextvars 并绑定日志 |
-| `models/schemas.py` | AgentRunRequest / AgentRunResponse / StreamEvent 等跨层公用模型 |
+### core/ai_core
 
-### core/ai_core/ — AI 能力层
-只关心"怎么调 LLM"，不关心"做什么业务"。
+- `prompt/manager.py`：Prompt 拉取与本地兜底
+- `llm/client.py`：统一 LLM 客户端封装
+- `routing/router.py`：按任务类型路由模型
+- `embedding/provider.py`：Embedding 抽象与默认实现
 
-| 文件 | 职责 |
-|------|------|
-| `llm/client.py` | LiteLLM 封装，支持 OpenAI / Anthropic / 本地模型，自动上报 Langfuse |
-| `llm/provider.py` | LLM Provider 接口骨架（complete/stream），统一屏蔽下层 SDK 差异 |
-| `prompt/manager.py` | 从 Langfuse 拉取版本化 Prompt，降级时用本地 fallback |
-| `routing/router.py` | 按 task_type 选模型：simple→小模型省钱，complex→强模型，local→敏感数据不出网 |
-| `embedding/provider.py` | Embedding Provider 抽象与默认实现（SentenceTransformer），配置化模型与设备 |
+### core/memory_rag
 
-### core/memory_rag/ — 数据智能层
-只关心"怎么存取记忆和知识"，不关心"哪个业务用"。
+- `memory/manager.py`：短期记忆写入治理、长期记忆读写、短转长触发与上下文聚合
+- `memory/config.py`：记忆/RAG 策略配置（含新增 M1/M2 配置项）
+- `rag/pipeline.py`：召回与精排流水线
+- `vector/store.py`：当前向量库实现为 Qdrant 适配器
+- `rag/filters.py`：Filter DSL 到后端过滤表达式转换
 
-| 文件 | 职责 |
-|------|------|
-| `embedding/service.py` | bge-m3 本地推理单例，懒加载，批量 encode |
-| `rerank/service.py` | bge-reranker 本地精排，召回 top-20 → 精排 top-5 |
-| `vector/acl.py` | 向量库适配器接口骨架（create_collection/upsert/search 等），屏蔽后端差异 |
-| `vector/store.py` | Milvus 操作，collection 按 `{tenant_id}_{type}` 命名隔离 |
-| `memory/manager.py` | 短期记忆(Redis TTL) + 长期记忆(mem0自动压缩) |
-| `memory/config.py` | MemoryConfig 数据类，各域覆盖 top_k / 阈值 / 是否启用长期记忆 |
-| `rag/pipeline.py` | 查询改写 → 向量召回 → rerank，接收 MemoryConfig 参数 |
+### core/tool_service
 
-### core/tool_service/ — MCP 协议层
-只关心"怎么和内网业务系统通信"。
+- `registry.py`：统一工具列表与调用入口
+- `mcp/*.py`：内部/外部 MCP 适配
+- `client/gateway.py`：业务网关调用与错误归一化
 
-| 文件 | 职责 |
-|------|------|
-| `client/gateway.py` | httpx 异步客户端，自动注入 tenant header，tenacity 重试，统一错误日志 |
-| `registry.py` | 统一工具注册表，聚合 Skill 与 MCP，两类工具统一暴露与调用 |
-| `mcp/service_client.py` | 内部 MCP 服务客户端（对接 mcp-service 的 /tools 与 /invoke） |
-| `mcp/external_client.py` | 外部 MCP 提供者客户端，基于 HTTP 注册外部工具 |
-| `mcp/base.py` | MCP 客户端接口骨架（list_tools/invoke），统一外部/内部差异 |
-| `skills/base.py` | Skill 装饰器，注册本地可执行工具，并纳入统一注册表 |
+### core/agent_engine
 
-### core/agent_engine/ — 编排框架层
-只关心"LangGraph 的基础结构"，不关心具体业务流程。
+- `workflows/base_agent.py`：基础编排骨架
+- `workflows/plan_execute.py`：计划执行模式
+- `orchestrator_factory.py`：编排工厂与模式分发
+- `mode_selector.py`：模式选择与降级策略
+- `tools/router.py`：工具选择与提示词管理接入
 
-| 文件 | 职责 |
-|------|------|
-| `agents/registry.py` | AgentMeta 注册表，启动时由各域 register.py 填充，运行时按 agent_id 查找 |
-| `workflows/base_agent.py` | 可复用的基础 Graph（记忆拉取→RAG→推理→工具→记忆写回），各域继承后扩展节点 |
-| `workflows/plan_execute.py` | PlanExecute 编排 Graph（planner→executor→replanner→finalize） |
-| `workflows/state.py` | 统一编排状态定义与初始状态构造 |
-| `orchestrator_factory.py` | 运行时根据租户/Agent/输入动态选择 command 或 plan_execute 模式 |
-| `mode_selector.py` | 双模式选择与降级规则（allowlist、关键词升级、重规划上限） |
-| `checkpoints/redis_checkpoint.py` | Checkpoint 后端选择（Memory/Redis 可配置），支持 Human-in-the-loop 和中断恢复 |
+### apps
 
-### apps/ — 业务域层
-**新增业务场景只需要在这里加目录，框架层不动。**
+业务域（policy/claim/customer）通过 `register.py` 注册 agent、工具与 memory 配置，框架层无需改动。
 
-每个域包含：
-- `register.py`：域的唯一对外入口，声明 agent_id、tools、memory_config
-- `*_agent.py`：继承 base_agent 或自定义 LangGraph workflow
-- `memory_config.py`：覆盖该域的记忆和 RAG 参数
-- `tools/`：该域专属的 MCP tools，调用 gateway_client
-- `prompts/`：该域专属的 system prompt 文本
+## 项目依赖
 
----
+### 运行时依赖
 
-## 快速启动
+- Python `>=3.11`
+- FastAPI / Uvicorn
+- LangGraph / LangChain
+- LiteLLM
+- Redis
+- Qdrant Client（当前向量存储实现）
+- Sentence Transformers / FlagEmbedding
+- Langfuse / OpenTelemetry
+
+### 开发依赖
+
+- pytest / pytest-asyncio / pytest-cov
+- ruff
+- mypy（strict）
+
+## 项目配置
+
+统一通过 `.env` 管理（参考 `.env.example`），关键配置如下：
+
+| 配置组 | 关键变量 |
+|---|---|
+| 服务 | `APP_ENV` `HOST` `PORT` |
+| 编排 | `ORCH_DEFAULT_MODE` `ORCH_MAX_STEPS` `ORCH_MAX_REPLANS` `ORCH_PLAN_EXECUTE_AGENTS` `ORCH_PLAN_EXECUTE_TENANTS` |
+| 模型 | `LLM_DEFAULT_MODEL` `LLM_STRONG_MODEL` `OPENAI_API_KEY` `ANTHROPIC_API_KEY` |
+| Prompt/Nacos | `NACOS_SERVER_ADDR` `NACOS_NAMESPACE` `NACOS_GROUP` `NACOS_DATA_ID` |
+| 向量与检索 | `VECTOR_DB_BACKEND` `QDRANT_URL` `EMBEDDING_MODEL` `RERANK_MODEL` `EMBEDDING_DEVICE` |
+| 缓存与状态 | `REDIS_URL` `CHECKPOINT_BACKEND` `CHECKPOINT_TTL` |
+| 工具网关 | `INTERNAL_GATEWAY_URL` `GATEWAY_TIMEOUT` |
+| 观测 | `LANGFUSE_HOST` `LANGFUSE_PUBLIC_KEY` `LANGFUSE_SECRET_KEY` `OTEL_EXPORTER_OTLP_ENDPOINT` |
+
+## 项目使用说明
+
+### 1) 本地启动
 
 ```bash
-# 1. 启动本地基础设施
 docker compose -f docker-compose.dev.yml up -d
-
-# 2. 安装依赖
 pip install -e ".[dev]"
-
-# 3. 配置环境变量
 cp .env.example .env
-# （可选）根据环境切换检查点后端：
-# CHECKPOINT_BACKEND=memory            # 开发/测试
-# CHECKPOINT_BACKEND=redis             # 生产，需配合 REDIS_URL 与 CHECKPOINT_TTL
-# （可选）双模式编排开关：
-# ORCH_DEFAULT_MODE=command
-# ORCH_MAX_STEPS=12
-# ORCH_MAX_REPLANS=2
-# ORCH_PLAN_EXECUTE_AGENTS=
-# ORCH_PLAN_EXECUTE_TENANTS=
-
-# 4. 启动服务
 uvicorn main:app --reload --port 8000
-
-# 5. 查看 API 文档
-open http://localhost:8000/docs
 ```
 
----
+### 2) 健康检查
+
+- `GET /health`：进程健康状态
+- `GET /ready`：就绪状态（模型、prompts、rag、redis、qdrant 等分项）
+
+### 3) 常用接口
+
+- `GET /agent/list`：查看已注册 Agent
+- `POST /agent/run`：同步执行
+- `POST /agent/stream`：SSE 流式执行
+- `GET /tools`：列出工具（需 `X-App-Id/X-App-Token`）
+- `POST /tools/invoke`：调用工具（需 `X-App-Id/X-App-Token`）
+
+### 4) 最小调用示例
+
+```bash
+curl -X POST "http://localhost:8000/agent/run" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: demo-tenant" \
+  -d '{
+    "agent_id": "policy_agent",
+    "input": "帮我查询保单状态",
+    "conversation_id": "conv-001"
+  }'
+```
+
+### 5) 开发质量门禁
+
+```bash
+pytest -q
+mypy .
+ruff check .
+```
+
+## Memory 模块当前进展
+
+已完成（M1/M2）：
+
+- 写入治理：空白过滤、噪声过滤、短窗口去重
+- 长期记忆：`append_long_term` / `retrieve_long_term`
+- 短转长：达到阈值自动触发 `consolidate_short_to_long`
+- 上下文构建：短期 + 长期聚合
+- 配置扩展：`memory_noise_filter_enabled`、`short_to_long_trigger_turns`、`long_term_retrieve_top_k`、`memory_types_default`
+- 单元测试：覆盖噪声过滤、去重、触发 consolidate、聚合读取
+
+规划中（M3）：
+
+- 长期写入去重增强（hash/semantic）
+- 读取时间衰减与结果治理
+- 与 RAG 融合权重治理
+- 异步压缩清理与可观测指标完善
+
+详见：`docs/memory_rag.md` 与 `docs/memory-最小可落地改造任务清单.md`
 
 ## 新增业务域（标准流程）
 
-以新增"核保域"为例：
-
-```bash
-# 1. 创建目录结构
-mkdir -p apps/underwriting/{tools,prompts}
-
-# 2. 实现以下文件
-# apps/underwriting/register.py       ← 必须
-# apps/underwriting/underwriting_agent.py
-# apps/underwriting/memory_config.py
-# apps/underwriting/tools/underwrite_tools.py
-# apps/underwriting/prompts/system.txt
-
-# 3. 重启服务，框架自动发现并注册
-# 无需修改 main.py 或任何框架层代码
-```
-
----
+1. 在 `apps/<domain>/` 新增 `register.py`、`*_agent.py`、`memory_config.py`、`tools/`、`prompts/`
+2. 在 `register.py` 声明 agent 元信息、候选工具、memory 配置
+3. 重启服务后自动注册，无需改 `main.py`
 
 ## 变更记录
+
+- 2026-03-30
+  - 基于近期架构与 Memory 模块沟通，完整重构 README：更新项目介绍、分层职责、依赖配置、接口说明、质量门禁与 Memory 进展
+  - 统一命名：`core/memory_rag/embedding/gateway.py` 对外实例命名为 `embedding_gateway`，并同步更新 RAG、Memory、ToolRouter、向量存储与就绪检查引用
 
 - 2026-03-27
   - 新增双模式动态编排：`command` 与 `plan_execute`，运行时由 `orchestrator_factory` 按租户/Agent/输入自动选择
   - 扩展 `AgentMeta`：支持 `orchestration_mode`、`routing_mode`、`fallback_mode`、`max_replans`
   - 新增配置：`ORCH_DEFAULT_MODE`、`ORCH_MAX_STEPS`、`ORCH_MAX_REPLANS`、`ORCH_PLAN_EXECUTE_AGENTS`、`ORCH_PLAN_EXECUTE_TENANTS`
-  - `main.py` 的 `/agent/run` 与 `/agent/stream` 已接入统一编排工厂，返回结果附带模式信息
+  - `main.py` 的 `/agent/run` 与 `/agent/stream` 接入统一编排工厂，返回结果附带模式信息
   - 新增测试：`test_mode_selector.py`、`test_orchestrator_factory.py`
-  - `core/agent_engine/tools/router.py` 的 LLM 工具选择提示词接入 `PromptManager`，并增加本地模板 `tool_router_select_sys.txt`、`tool_router_select_user.txt`
-  - 明确 `memory_rag` 中 Memory 层职责边界，并新增任务文档 `docs/memory-最小可落地改造任务清单.md` 维护最小可落地改造清单
-  - `MemoryConfig` 新增最小改造配置：`memory_noise_filter_enabled`、`short_to_long_trigger_turns`、`long_term_retrieve_top_k`、`memory_types_default`
-  - `memory/manager.py` 新增写入治理能力：空白/短噪声过滤、常见寒暄过滤、同角色最近窗口去重，并增加过滤原因日志字段
-  - 新增单元测试 `tests/memory/test_manager.py`，覆盖废话过滤、重复写入去重、关闭过滤开关后的兼容行为
-  - `memory/manager.py` 新增长期记忆能力：`append_long_term`、`retrieve_long_term`、`consolidate_short_to_long`，并在短期记忆达到阈值时自动触发 consolidate
-  - `build_memory_context` 支持短期 + 长期聚合上下文；`filters.py` 扩展 memory 相关字段白名单（`memory_type`、`conversation_id`、`role`、`timestamp`）
-  - 新增测试覆盖：短期触发 consolidate、上下文聚合长期片段
-  - 对齐 Memory 职责基线：补充写入/读取/异步/治理四条链路定义，明确 `profile/claim/plan` 属于长期记忆分类标签与过滤策略，不是独立记忆层级
-  - 更新最小改造任务清单：补充滚动摘要写入、读取时间衰减、与 RAG 融合占比、异步压缩清理等未完成项
-  - 细化 M3 任务拆分：为 T1~T8 增加接口改动点、配置项、测试用例建议与验收命令（仅文档规划，未改代码）
+  - `core/agent_engine/tools/router.py` 的 LLM 工具选择提示词接入 `PromptManager`
+  - 明确 `memory_rag` 中 Memory 职责边界，并新增任务文档维护最小可落地改造清单
+  - `MemoryConfig` 新增配置：`memory_noise_filter_enabled`、`short_to_long_trigger_turns`、`long_term_retrieve_top_k`、`memory_types_default`
+  - `memory/manager.py` 新增写入治理、长期记忆读写、短转长触发与上下文聚合
+  - 新增 `tests/memory/test_manager.py` 覆盖关键场景
 
 - 2026-03-26
-  - 新增 `core/ai_core/embedding/provider.py`，提供统一 Embedding Provider 抽象与默认实现（SentenceTransformer），通过 `settings.embedding.embedding_model` 与 `settings.embedding.device` 配置
-  - 新增 `core/memory_rag/embedding/service.py`，懒加载本地 embedding 模型，供主入口与 RAG 使用
-  - 新增 `core/memory_rag/rerank/service.py`，集成 FlagEmbedding 精排；若未安装依赖则优雅降级为原顺序截取 top_k
-  - `main.py` 启动 lifespan 中预热 embedding/rerank 模型，提升就绪检查稳定性
-  - 依赖与配置：`sentence-transformers`、`FlagEmbedding`；环境变量 `EMBEDDING_MODEL`、`RERANK_MODEL`、`EMBEDDING_DEVICE`
-  - 新增 `core/ai_core/prompt/manager.py`，Prompt 版本化管理（Langfuse 优先、本地兜底），支持变量插值与缓存
-  - 新增 `core/memory_rag/vector/store.py`（Qdrant 实现），打通最小 RAG 闭环（召回→精排），collection 命名 `tenant_type`
-  - 新增 `core/memory_rag/memory/manager.py`，Redis 短期记忆（窗口裁剪），与基础编排集成
-  - 新增 `core/ai_core/prompt/provider.py`，抽象 PromptProvider ACL（Langfuse/LocalFile），`PromptManager` 采用 Provider 链组合
+  - 新增 Embedding Provider、Embedding Service、Rerank Service 与 Prompt Provider
+  - 启动阶段增加 embedding/rerank 预热与 readiness 分项检查
+  - 新增向量存储与最小 RAG 闭环能力

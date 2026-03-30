@@ -90,9 +90,9 @@ async def _check_prompts() -> bool:
 
 async def _check_rag() -> bool:
     try:
-        from core.memory_rag.embedding.service import embedding_service
+        from core.memory_rag.embedding.gateway import embedding_gateway
         from core.memory_rag.vector.store import vector_store
-        embedding_service.embed(["ready"])
+        embedding_gateway.embed(["ready"])
         vector_store.list_collections()
         return True
     except Exception:
@@ -139,9 +139,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     #    预热完成前 /ready 返回 503，K8s 不分流量
     logger.info("warming_up_models")
     try:
-        from core.memory_rag.embedding.service import embedding_service
+        from core.memory_rag.embedding.gateway import embedding_gateway
         from core.memory_rag.rerank.service import rerank_service
-        embedding_service.embed(["warmup"])
+        embedding_gateway.embed(["warmup"])
         rerank_service.rerank("warmup", ["test"], top_k=1)
         readiness.mark_ready("models")        # 模型加载完成
         logger.info("models_ready")

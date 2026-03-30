@@ -3,7 +3,7 @@ from typing import List
 from core.ai_core.embedding.provider import EmbeddingProvider, get_embedding_provider
 
 
-class EmbeddingService:
+class EmbeddingGateway:
     def __init__(self):
         self._provider: EmbeddingProvider | None = None
 
@@ -13,4 +13,4 @@ class EmbeddingService:
         return self._provider.embed(texts)
 
 
-embedding_service = EmbeddingService()
+embedding_gateway = EmbeddingGateway()

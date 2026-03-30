@@ -20,7 +20,7 @@
 ## 模块与提供方式
 
 ### 1) Embedding 与 Rerank
-- 位置：`core/memory_rag/embedding/service.py`、`core/memory_rag/rerank/service.py`
+- 位置：`core/memory_rag/embedding/gateway.py`、`core/memory_rag/rerank/service.py`
 - 能力：
   - 懒加载单例，批量 encode / rerank
   - CPU/GPU/设备可配，模型可配
@@ -33,8 +33,8 @@
 - 保证一致性：文档入库向量与查询向量由同一 Provider 产生，避免空间不一致导致召回偏差
 - 工程化保障：懒加载初始化降低冷启动阻塞；批量编码提升吞吐；错误时返回清晰异常，便于探针与告警
 - 使用边界：
-  - 检索：`rag/pipeline.py` 在 recall 前调用 `embedding_service.embed([query])`
-  - 入库：`vector/store.py` 在 `add_texts/upsert` 缺省向量时调用 `embedding_service.embed(texts)`
+  - 检索：`rag/pipeline.py` 在 recall 前调用 `embedding_gateway.embed([query])`
+  - 入库：`vector/store.py` 在 `add_texts/upsert` 缺省向量时调用 `embedding_gateway.embed(texts)`
 
 ### 2) 向量库抽象
 - 位置：`core/memory_rag/vector/store.py`
@@ -235,9 +235,9 @@
 4. 后续将迭代 Filter DSL、RetrievalPlan、指标上报与 Milvus 适配器
 
 ### 层级防腐总则
-- 上层使用边界：apps/workflows 仅调用 `embedding_service`、`rag_pipeline`、`VectorStoreAdapter` 暴露的稳定接口；禁止直接依赖具体后端（Qdrant/Milvus）。
+- 上层使用边界：apps/workflows 仅调用 `embedding_gateway`、`rag_pipeline`、`VectorStoreAdapter` 暴露的稳定接口；禁止直接依赖具体后端（Qdrant/Milvus）。
 - 后端适配隔离：Filter DSL 的翻译在 VectorStore 适配器层完成；pipeline 只构造通用 DSL 与检索参数。
-- 一致性保障：向量生成统一走 `embedding_service`（复用 ai_core Provider），确保查询与入库向量位于同一空间。
+- 一致性保障：向量生成统一走 `embedding_gateway`（复用 ai_core Provider），确保查询与入库向量位于同一空间。
 - 可插拔与降级：向量库后端可替换；Rerank 未加载时降级为顺序截取；召回失败返回空并记录可观测事件。
 - 元数据与安全：强制注入 `tenant_id` 过滤；Metadata 字段白名单与类型校验在适配器层执行。
 - 观测与就绪：/ready 暴露 `rag_ready` 与 `rerank_available`；检索链路关键阶段打点与日志穿透（tenant_id/trace_id）。

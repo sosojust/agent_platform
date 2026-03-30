@@ -4,7 +4,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from shared.config.settings import settings
 from core.memory_rag.vector.acl import VectorStoreAdapter
-from core.memory_rag.embedding.service import embedding_service
+from core.memory_rag.embedding.gateway import embedding_gateway
 from core.memory_rag.rag.filters import build_qdrant_filter
 
 
@@ -13,7 +13,7 @@ class QdrantStore(VectorStoreAdapter):
         self._client = QdrantClient(url=url)
 
     def create_collection(self, name: str, schema: Dict[str, Any]) -> None:
-        dim = int(schema.get("vector_size") or len(embedding_service.embed(["warmup"])[0]))
+        dim = int(schema.get("vector_size") or len(embedding_gateway.embed(["warmup"])[0]))
         self._client.recreate_collection(
             collection_name=name,
             vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
@@ -34,7 +34,7 @@ class QdrantStore(VectorStoreAdapter):
                 idxs.append(i)
             points.append(PointStruct(id=vid, vector=vec or [], payload=payload))
         if texts:
-            vecs = embedding_service.embed(texts)
+            vecs = embedding_gateway.embed(texts)
             for j, k in enumerate(idxs):
                 points[k].vector = vecs[j]
         self._client.upsert(collection_name=collection, points=points)
@@ -46,7 +46,7 @@ class QdrantStore(VectorStoreAdapter):
         metadatas: List[Dict[str, Any]],
         ids: List[str] | None = None,
     ) -> List[str]:
-        vectors = embedding_service.embed(texts)
+        vectors = embedding_gateway.embed(texts)
         points = []
         out_ids: List[str] = []
         for i, text in enumerate(texts):
