@@ -79,10 +79,11 @@ agent-platform-mono/
 
 ### core/memory_rag
 
-- `memory/manager.py`：MemoryGateway（短期记忆写入治理、长期记忆读写、短转长触发与上下文聚合）
+- `memory/manager.py`：MemoryGateway（短期记忆写入治理、LLM 结构化长期记忆、内容 Hash 去重、上下文预算控制）
 - `memory/config.py`：记忆/RAG 策略配置（含新增 M1/M2 配置项）
 - `memory/filters.py`：消息过滤器（如噪声/重复/工具中间态过滤）与策略注册
 - `memory/compressor.py`：消息压缩器（如 simple/llm 摘要压缩）与策略装配
+- `memory/extractor.py`：长期记忆事实提取器（`LLMFactExtractor`，提取 `fact/category/confidence/timestamp`）
 - `rag/pipeline.py`：RagGateway（召回与精排流水线）
 - `vector/store.py`：VectorGateway（当前向量库实现为 QdrantProvider）
 - `rag/filters.py`：Filter DSL 到后端过滤表达式转换
@@ -96,6 +97,7 @@ agent-platform-mono/
 ### core/agent_engine
 
 - `workflows/base_agent.py`：基础编排骨架
+- `workflows/middlewares.py`：编排中间件流水线（`MaxStepsGuard`、`ContextInjector`）
 - `workflows/plan_execute.py`：计划执行模式
 - `orchestrator_factory.py`：编排工厂与模式分发
 - `mode_selector.py`：模式选择与降级策略
@@ -193,17 +195,20 @@ ruff check .
 - 平台契约：新增 `memory/provider_protocols.py`（`MessageFilter`/`MessageCompressor`/`TokenizerProvider`/`LongTermExtractor`）
 - 压缩策略：新增 `window/simple_summary/llm_summary` 与 `char/tiktoken` tokenizer provider
 - 长期记忆：`append_long_term` / `retrieve_long_term`
+- 结构化提取：`LLMFactExtractor` 从短期对话中提取长期 Fact，补齐 `category/confidence/timestamp`
+- 长期去重：写入时基于内容 MD5 Hash 生成稳定 ID，避免重复事实堆积
 - 短转长：达到阈值自动触发 `consolidate_short_to_long`
-- 上下文构建：短期 + 长期聚合
-- 配置扩展：`memory_noise_filter_enabled`、`short_to_long_trigger_turns`、`long_term_retrieve_top_k`、`memory_types_default`、`filter_strategies`、`compression_strategy`、`compression_threshold`、`compression_token_threshold`
-- 单元测试：覆盖噪声过滤、去重、窗口压缩、触发 consolidate、聚合读取
+- 上下文构建：按 `【相关历史事实】` + `【近期对话】` 聚合，并用 `max_injection_tokens` 控制注入预算
+- 配置扩展：`memory_noise_filter_enabled`、`short_to_long_trigger_turns`、`long_term_retrieve_top_k`、`max_injection_tokens`、`memory_types_default`、`filter_strategies`、`compression_strategy`、`compression_threshold`、`compression_token_threshold`
+- 单元测试：覆盖噪声过滤、去重、窗口压缩、触发 consolidate、Fact 聚合读取与上下文格式
 
 规划中（M3）：
 
-- 长期写入去重增强（hash/semantic）
+- 长期写入去重增强（semantic merge / 事实修正）
 - 读取时间衰减与结果治理
 - 与 RAG 融合权重治理
 - 异步压缩清理与可观测指标完善
+- 短转长异步化队列与 working memory 分层
 
 详见：`docs/memory_rag.md` 与 `docs/memory-最小可落地改造任务清单.md`
 
@@ -216,6 +221,13 @@ ruff check .
 ## 变更记录
 
 - 2026-03-31
+  - `core/memory_rag/memory/extractor.py` 新增 `LLMFactExtractor`，将短期对话提取为结构化长期事实并补齐 `category/confidence/timestamp`
+  - `core/memory_rag/memory/manager.py` 新增长期记忆内容 Hash 去重与 `max_injection_tokens` 预算控制，统一输出 `【相关历史事实】` / `【近期对话】` 上下文格式
+  - `core/agent_engine/workflows/middlewares.py` 新增编排中间件流水线，将 `MaxStepsGuard` 与 `ContextInjector` 从 LLM 推理节点中解耦
+  - `shared/config/settings.py` 引入 `DynamicSettings` 动态配置代理，统一静态配置回退与 Nacos 动态配置访问
+  - `shared/config/nacos.py` 改为通过 `settings.update_dynamic()` 落盘动态配置，并保留对现有 `settings.llm.*` 读取方式的兼容
+  - 新增 `tests/test_architecture_boundary.py`，基于 AST 校验 `core/`、`shared/` 不反向依赖 `domain_agents/`
+  - README、`docs/memory_rag.md`、`docs/agent_engine.md` 同步更新 Core 层现状说明
   - `core/ai_core/llm/client.py` 新增 LiteLLM 同模型多部署高可用路由：支持按部署轮询、失败熔断冷却、自动重试与默认部署兜底
   - `shared/config/settings.py` 新增路由配置项：`LLM_ROUTER_DEPLOYMENTS`、`LLM_ROUTER_COOLDOWN_SECONDS`、`LLM_ROUTER_MAX_ATTEMPTS`
   - `core/ai_core/llm/client.py` 落地统一缓存策略：按 `scene/task_type` 自动命中 TTL，移除上游显式 cache 开关透传

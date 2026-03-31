@@ -97,10 +97,13 @@ class MemoryGateway:
         r: Any = await self._r()
         key = f"mem:{tenant_id}:{conversation_id}"
         items: List[str] = await r.lrange(key, -config.short_term_max_turns, -1)
-        parts: List[str] = []
+        
+        short_term_parts: List[str] = []
         for it in items:
             obj = json.loads(it)
-            parts.append(f"{obj.get('role')}: {obj.get('content')}")
+            short_term_parts.append(f"{obj.get('role')}: {obj.get('content')}")
+            
+        long_term_parts: List[str] = []
         if config.long_term_enabled:
             memory_types = config.memory_types_default
             long_term_parts = await self.retrieve_long_term(
@@ -109,8 +112,41 @@ class MemoryGateway:
                 config=config,
                 memory_types=memory_types,
             )
-            parts.extend([f"memory: {p}" for p in long_term_parts])
-        return "\n".join(parts[-config.short_term_max_turns - config.long_term_retrieve_top_k :])
+
+        # 优先保障短期记忆，然后追加长期记忆，直到达到 token limit
+        tokenizer = build_tokenizer(config.tokenizer_provider)
+        final_parts: List[str] = []
+        current_tokens = 0
+        
+        # 短期记忆按时间顺序，从后往前计算，如果超限则截断更早的
+        valid_short_term = []
+        for part in reversed(short_term_parts):
+            tokens = tokenizer.count_text(part, config.compression_model_name)
+            if current_tokens + tokens > config.max_injection_tokens:
+                break
+            valid_short_term.insert(0, part)
+            current_tokens += tokens
+            
+        # 长期记忆作为补充上下文
+        valid_long_term = []
+        for part in long_term_parts:
+            fact_str = f"- Fact: {part}"
+            tokens = tokenizer.count_text(fact_str, config.compression_model_name)
+            if current_tokens + tokens > config.max_injection_tokens:
+                break
+            valid_long_term.append(fact_str)
+            current_tokens += tokens
+
+        if valid_long_term:
+            final_parts.append("【相关历史事实】")
+            final_parts.extend(valid_long_term)
+            final_parts.append("")
+            
+        if valid_short_term:
+            final_parts.append("【近期对话】")
+            final_parts.extend(valid_short_term)
+
+        return "\n".join(final_parts)
 
     async def retrieve_long_term(
         self,
@@ -156,33 +192,38 @@ class MemoryGateway:
         r: Any = await self._r()
         key = f"mem:{tenant_id}:{conversation_id}"
         items: List[str] = await r.lrange(key, -config.short_to_long_trigger_turns, -1)
-        entries: List[Dict[str, Any]] = []
+        
+        messages = []
         for raw in items:
             obj = json.loads(raw)
-            role = str(obj.get("role", ""))
             content = normalize_content(str(obj.get("content", "")))
             if not content:
                 continue
             noise_filter = self._noise_filter(config)
             if noise_filter is not None and noise_filter.is_noise(content):
                 continue
-            ts = int(obj.get("ts", int(time.time())))
-            memory_type = self._resolve_memory_type(config)
-            entries.append(
-                {
-                    "role": role,
-                    "content": content,
-                    "timestamp": ts,
-                    "memory_type": memory_type,
-                }
-            )
-        if not entries:
+            messages.append({"role": obj.get("role", "user"), "content": content})
+            
+        if not messages:
             return 0
+            
+        from core.memory_rag.memory.extractor import LLMFactExtractor
+        extractor = LLMFactExtractor()
+        extracted_facts = await extractor.extract(messages, tenant_id, conversation_id)
+        
+        if not extracted_facts:
+            return 0
+            
+        # Add memory_type to facts
+        memory_type = self._resolve_memory_type(config)
+        for fact in extracted_facts:
+            fact["memory_type"] = memory_type
+            
         return self.append_long_term(
-            entries=entries,
+            entries=extracted_facts,
             conversation_id=conversation_id,
             tenant_id=tenant_id,
-            memory_type=self._resolve_memory_type(config),
+            memory_type=memory_type,
         )
 
     def append_long_term(
@@ -192,6 +233,7 @@ class MemoryGateway:
         tenant_id: str,
         memory_type: str,
     ) -> int:
+        import hashlib
         if not entries:
             return 0
         collection = self._memory_collection_name(tenant_id)
@@ -200,12 +242,17 @@ class MemoryGateway:
         metadatas: List[Dict[str, Any]] = []
         ids: List[str] = []
         now = int(time.time())
-        for i, entry in enumerate(entries):
+        for entry in entries:
             content = normalize_content(str(entry.get("content", "")))
             if not content:
                 continue
+            
+            # 使用内容 Hash 去重，防止事实重复堆积
+            content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
+            fact_id = f"{tenant_id}:{memory_type}:{content_hash}"
+            
             ts = int(entry.get("timestamp", now))
-            role = str(entry.get("role", "assistant"))
+            role = str(entry.get("role", "system"))
             texts.append(content)
             metadatas.append(
                 {
@@ -213,10 +260,13 @@ class MemoryGateway:
                     "conversation_id": conversation_id,
                     "memory_type": memory_type,
                     "role": role,
+                    "category": entry.get("category", "general"),
+                    "confidence": entry.get("confidence", 1.0),
                     "timestamp": ts,
                 }
             )
-            ids.append(f"{tenant_id}:{conversation_id}:{memory_type}:{ts}:{i}")
+            ids.append(fact_id)
+            
         if not texts:
             return 0
         vector_gateway.add_texts(

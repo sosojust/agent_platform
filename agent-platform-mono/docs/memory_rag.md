@@ -1,9 +1,9 @@
 # memory_rag 层能力设计说明
 
-定位：数据智能层（与业务无关）。负责“如何存取记忆与知识、如何检索与融合”，对上游 apps 暴露稳定、可配置、可观测的检索与记忆接口。
+定位：数据智能层（与业务无关）。负责“如何存取记忆与知识、如何检索与融合”，对上游 `domain_agents` 暴露稳定、可配置、可观测的检索与记忆接口。
 
 ## 设计目标
-- 解耦业务差异：apps 只描述“要什么/怎么调参”，不关心底层数据结构与存储细节。
+- 解耦业务差异：`domain_agents` 只描述“要什么/怎么调参”，不关心底层数据结构与存储细节。
 - 可插拔与可扩展：Embedding/Rerank/向量库/关键词检索/融合策略均可替换。
 - 多租户隔离与安全：collection 命名隔离 + 强制 tenant_id 过滤。
 - 可观测与可治理：检索链路指标可视化，支持调参与灰度。
@@ -25,7 +25,7 @@
   - 懒加载单例，批量 encode / rerank
   - CPU/GPU/设备可配，模型可配
 - 接入方式：
-  - 由检索管线自动调用，apps 无需直接使用
+  - 由检索管线自动调用，`domain_agents` 无需直接使用
 
 #### Embedding 核心职责
 - 作为数据智能层的“向量化入口”，将文本与查询编码为同一向量空间的向量，服务检索与入库两条主链路
@@ -44,7 +44,7 @@
   - delete/upsert/by_ids
   - 当前实现：Qdrant（由 `settings.vector_db.backend` 选择；目前阶段优先 Qdrant）
 - 提供方式：
-  - 对 pipeline 公开，apps 不直接调用
+  - 对 pipeline 公开，`domain_agents` 不直接调用
 
 #### 防腐层（Anti-Corruption Layer, ACL）设计
 - 统一接口（示意）：
@@ -70,18 +70,20 @@
   - 测试基线：统一的 CRUD 与 search 行为测试套件（不同后端复用）
 
 ### 3) Memory 管理
-- 位置：`core/memory_rag/memory/manager.py`（建议）
+- 位置：`core/memory_rag/memory/manager.py`
 - 职责链路（基线）：
-  - 写入链路：原始对话 → 闲聊/噪声过滤 → 结构化为 MemoryEntry → 去重 → 分流短期/长期 → 多租户隔离写入
-  - 读取链路：短期拼接 + 长期语义检索 → 时间衰减 → 去重 → 与 RAG 结果融合 → 返回上下文
-  - 异步链路：短期窗口超限/阈值触发 → 滚动摘要/压缩 → 写入长期；定期压缩与过期清理
+  - 写入链路：原始对话 → 闲聊/噪声过滤 → Redis 短期写入 → 阈值触发 `LLMFactExtractor` 提取结构化 Fact → 内容 Hash 去重 → 多租户隔离写入长期向量库
+  - 读取链路：短期拼接 + 长期语义检索 → 按 `max_injection_tokens` 控制预算 → 输出 `【相关历史事实】` + `【近期对话】` 上下文
+  - 异步链路：当前仍以同步阈值触发 consolidate 为主；后续演进为异步压缩/清理任务
   - 治理职责：tenant_id 强制过滤、TTL 管理、memory_type 路由与过滤策略治理
 - 当前代码现状（2026-03）：
   - 已实现：短期记忆追加（Redis List + TTL + 窗口裁剪）
   - 已实现：写入治理（空白/噪声过滤、最近窗口去重）
-  - 已实现：长期记忆最小能力（写入/检索）与短期阈值触发 consolidate
-  - 已实现：`build_memory_context` 的短期 + 长期聚合
-  - 待补齐：滚动摘要、长期写入去重（hash/近似）、读取阶段时间衰减与融合去重、周期压缩清理任务
+  - 已实现：长期记忆结构化提取（`memory/extractor.py` 中 `LLMFactExtractor`，输出 `fact/category/confidence/timestamp`）
+  - 已实现：长期记忆写入/检索与短期阈值触发 consolidate
+  - 已实现：长期记忆内容 Hash 去重（MD5 稳定 ID，避免重复事实堆积）
+  - 已实现：`build_memory_context` 的短期 + 长期聚合与注入预算控制
+  - 待补齐：滚动摘要、事实修正/语义去重、读取阶段时间衰减与融合去重、周期压缩清理任务
 - 职责边界（明确）：
   - 必须负责：
     - 短期记忆管理：追加、裁剪、过期、读取
@@ -92,7 +94,7 @@
   - 不应负责：
     - 业务流程判断与节点路由（由 `agent_engine` 负责）
     - 外部业务系统调用（由 `tool_service` 负责）
-    - 业务规则硬编码（由 apps 层配置或策略层负责）
+    - 业务规则硬编码（由 `domain_agents` 层配置或策略层负责）
   - 业务类型定义：
     - 用户画像/方案/理赔历史等属于长期记忆中的分类标签与检索过滤策略，不是独立的记忆层级或独立存储层
 - 能力：
@@ -100,14 +102,14 @@
   - 长期记忆：持久化 + 向量化
   - 写入转化（Write-time）：
     - 清洗/规范化/可选 PII 脱敏
-    - 结构化为 MemoryEntry（role/intent/entities/时间戳/重要度）
-    - 会话滚动摘要（阈值/窗口触发）
-    - 去重与引用链
+    - 通过 `LLMFactExtractor` 结构化为 Fact（`content/category/confidence/timestamp`）
+    - 会话阈值触发短转长 consolidate
+    - 使用内容 Hash 生成稳定 ID 去重
     - 分流：短期 vs 长期
   - 读取转化（Read-time）：
     - 会话上下文拼接（短期 + 长期摘录）
-    - 时间衰减与去重
-    - 与检索结果融合（权重/规则）
+    - 按短期优先、长期补充的顺序进行 token 预算控制
+    - 后续补齐时间衰减与检索结果融合（权重/规则）
 - 提供方式（示例接口）：
   - append_short_term(conversation_id, role, content, tenant_id, tags?)
   - append_long_term(entries, tenant_id)
@@ -163,7 +165,7 @@
   - 观测：记录“不可翻译比例”、“降级次数”，便于治理
 
 ### 5) RetrievalPlan（检索管线策略）
-- 目标：解决“不同业务场景检索/过滤不同”的需求，apps 用策略描述，memory_rag 负责执行。
+- 目标：解决“不同业务场景检索/过滤不同”的需求，domain_agents 用策略描述，memory_rag 负责执行。
 - 结构（示例）：
   - query_rewrite: bool|策略名
   - split_strategy: 句子/段落/滑窗
@@ -176,17 +178,18 @@
   - dedup_window: 近似去重窗口
   - filters: Filter DSL 模板/动态生成器
 - 提供方式：
-  - apps 在 `apps/*/memory_config.py` 给出默认 Plan（或通过 Nacos 下发）
+  - `domain_agents/*/memory_config.py` 给出默认 Plan（或通过 Nacos 下发）
   - pipeline 接受 `RetrievalPlan` 并按阶段执行
 
 ### 6) RAG Pipeline（统一检索入口）
 - 位置：`core/memory_rag/rag/pipeline.py`
 - 能力：
-  - `retrieve(query, tenant_id, config: MemoryConfig, plan: RetrievalPlan | None, filters: Filter | None)`
-  - 链路：`pre_rewrite -> recall(dense/keyword/hybrid) -> fusion -> rerank -> postprocess`
-  - 输出：上下文片段（含来源、分数、去重标签）与阶段指标（便于观测）
+  - 当前接口：`retrieve(query, tenant_id, collection_type, top_k_recall, top_k_rerank, rewrite)`
+  - 当前链路：`rewrite -> dense recall -> rerank`
+  - 当前输出：`list[str]` 文本片段，供编排层注入 `rag_context`
+  - 演进方向：后续扩展为支持 `RetrievalPlan`、Filter DSL 与阶段指标输出
 - 提供方式：
-  - 对上游暴露唯一入口；apps 不直接依赖底层实现
+  - 对上游暴露唯一入口；domain_agents 不直接依赖底层实现
 
 ## 多租户与安全
 - collection：`{tenant}_{domain}_{type}`
@@ -203,9 +206,9 @@
   - MemoryConfig/RetrievalPlan 支持 Nacos 下发与热更新
   - 降级策略：禁用 rerank、改为 keyword-only、cache 命中
 
-## 与 apps 的边界
-- apps 负责：
-  - 在 `apps/*/memory_config.py` 定义默认 MemoryConfig 与 RetrievalPlan（可按 agent 场景细分）
+## 与 domain_agents 的边界
+- domain_agents 负责：
+  - 在 `domain_agents/*/memory_config.py` 定义默认 MemoryConfig 与 RetrievalPlan（可按 agent 场景细分）
   - 在 workflow 中调用 pipeline.retrieve，组合 memory 上下文与 RAG 结果
   - 仅声明 filter 模板/boost 规则，不写底层数据代码
 - memory_rag 负责：
@@ -231,14 +234,15 @@
 当前阶段落地情况：
 1. Qdrant 向量库实现完成，支持 `create_collection`/`add_texts`/`upsert`/`search`/`delete`/`by_ids`/`list_collections`
 2. 最小 RAG 闭环：`embedding -> qdrant recall -> rerank` 已打通（`rag/pipeline.py`）
-3. Redis 短期记忆实现完成，`memory/manager.py` 与基础编排集成
-4. 后续将迭代 Filter DSL、RetrievalPlan、指标上报与 Milvus 适配器
+3. Redis 短期记忆与 LLM 结构化长期记忆已打通，`memory/manager.py` 与基础编排集成
+4. 长期记忆已支持内容 Hash 去重、`memory_type` 过滤检索与 `max_injection_tokens` 上下文预算控制
+5. 后续将迭代 Filter DSL、RetrievalPlan、指标上报、事实修正与 Milvus 适配器
 
 ### 层级防腐总则
-- 上层使用边界：apps/workflows 仅调用 `embedding_gateway`、`rag_gateway`、`vector_gateway` 暴露的稳定接口；禁止直接依赖具体后端（Qdrant/Milvus）。
+- 上层使用边界：domain_agents/workflows 仅调用 `embedding_gateway`、`rag_gateway`、`vector_gateway` 暴露的稳定接口；禁止直接依赖具体后端（Qdrant/Milvus）。
 - 后端适配隔离：Filter DSL 的翻译在 VectorStore 适配器层完成；pipeline 只构造通用 DSL 与检索参数。
 - 一致性保障：向量生成统一走 `embedding_gateway`（复用 ai_core Provider），确保查询与入库向量位于同一空间。
 - 可插拔与降级：向量库后端可替换；Rerank 未加载时降级为顺序截取；召回失败返回空并记录可观测事件。
 - 元数据与安全：强制注入 `tenant_id` 过滤；Metadata 字段白名单与类型校验在适配器层执行。
 - 观测与就绪：/ready 暴露 `rag_ready` 与 `rerank_available`；检索链路关键阶段打点与日志穿透（tenant_id/trace_id）。
- - 来源可见性：`rag_backend_qdrant` 为 true 表示当前后端为 Qdrant（来源于 `settings.vector_db.backend`）
+- 来源可见性：`rag_backend_qdrant` 为 true 表示当前后端为 Qdrant（来源于 `settings.vector_db.backend`）

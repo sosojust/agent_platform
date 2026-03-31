@@ -21,6 +21,7 @@ class MemoryConfig:
     memory_noise_filter_enabled: bool = True
     short_to_long_trigger_turns: int = 20
     long_term_retrieve_top_k: int = 5
+    max_injection_tokens: int = 2000
     memory_types_default: list[str] = field(default_factory=lambda: ["conversation"])
     filter_strategies: list[str] = field(default_factory=lambda: ["noise", "duplicate_recent"])
     compression_strategy: str = "window"

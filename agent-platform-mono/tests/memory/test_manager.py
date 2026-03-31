@@ -105,7 +105,7 @@ async def test_append_short_term_keeps_noise_when_filter_disabled() -> None:
         tenant_id="t1",
         config=cfg,
     )
-    assert context == "assistant: 好的"
+    assert context == "【近期对话】\nassistant: 好的"
     item = (await fake.lrange("mem:t1:c3", 0, -1))[0]
     payload = json.loads(item)
     assert payload["content"] == "好的"
@@ -120,7 +120,14 @@ async def test_short_term_trigger_consolidate(monkeypatch: pytest.MonkeyPatch) -
         memory_noise_filter_enabled=False,
         short_to_long_trigger_turns=2,
     )
-    append_long_term_mock = Mock(return_value=2)
+    
+    # Mock extractor to avoid actual LLM calls
+    async def mock_extract(self_obj, messages, tenant_id, conversation_id):
+        return [{"content": "fact1", "category": "general", "confidence": 1.0}]
+    
+    monkeypatch.setattr("core.memory_rag.memory.extractor.LLMFactExtractor.extract", mock_extract)
+    
+    append_long_term_mock = Mock(return_value=1)
     monkeypatch.setattr(manager, "append_long_term", append_long_term_mock)
     await manager.append_short_term(
         conversation_id="c4",
@@ -174,4 +181,4 @@ async def test_build_memory_context_merges_long_term(monkeypatch: pytest.MonkeyP
         config=read_cfg,
     )
     assert "user: 查询理赔进度" in context
-    assert "memory: 历史理赔记录A" in context
+    assert "- Fact: 历史理赔记录A" in context

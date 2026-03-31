@@ -15,6 +15,7 @@ from core.memory_rag.memory.config import MemoryConfig, DEFAULT_MEMORY_CONFIG
 from core.memory_rag.memory.manager import memory_gateway
 from core.memory_rag.rag.pipeline import rag_gateway
 from core.ai_core.prompt.manager import prompt_gateway
+from core.agent_engine.workflows.middlewares import build_middleware_pipeline, MaxStepsGuard, ContextInjector
 from shared.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -69,23 +70,19 @@ def make_retrieve_rag_node(cfg: MemoryConfig):
 def make_llm_reason_node(tools: list, system_prompt_key: str, cfg: MemoryConfig, scene: str):
     llm = llm_gateway.get_chat(tools, scene=scene)
 
+    async def llm_action(state: dict) -> dict:
+        """纯粹的大模型推理执行节点"""
+        response = await llm.ainvoke(state["messages"])
+        return {"messages": [response]}
+
+    middlewares = [
+        MaxStepsGuard(max_steps=cfg.max_steps),
+        ContextInjector(system_prompt_key=system_prompt_key),
+    ]
+    pipeline = build_middleware_pipeline(middlewares, llm_action)
+
     async def llm_reason(state: BaseAgentState) -> dict:
-        if state["step_count"] >= cfg.max_steps:
-            logger.warning("max_steps_reached", conversation_id=state["conversation_id"])
-            return {"messages": [], "step_count": state["step_count"]}
-
-        system_parts = [
-            prompt_gateway.get(system_prompt_key,
-                               variables={"tenant_id": state["tenant_id"]}),
-        ]
-        if state.get("memory_context"):
-            system_parts.append(f"\n{state['memory_context']}")
-        if state.get("rag_context"):
-            system_parts.append(f"\n【参考资料】\n{state['rag_context']}")
-
-        messages = [SystemMessage(content="\n".join(system_parts))] + state["messages"]
-        response = await llm.ainvoke(messages)
-        return {"messages": [response], "step_count": state["step_count"] + 1}
+        return await pipeline(dict(state))
 
     return llm_reason
 

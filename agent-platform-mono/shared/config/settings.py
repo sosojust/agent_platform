@@ -112,4 +112,26 @@ class AppSettings(BaseSettings):
     )
 
 
-settings = AppSettings()
+class DynamicSettings:
+    def __init__(self, static_settings: AppSettings):
+        self._static = static_settings
+        self._nacos_cache: dict = {}
+        self.config_version: int = 0
+
+    def get(self, key: str, fallback=None):
+        """优先 Nacos 动态值，未命中则回退到 pydantic 静态值"""
+        if key in self._nacos_cache:
+            return self._nacos_cache[key]
+        return getattr(self._static, key, fallback)
+
+    def update_dynamic(self, config: dict) -> None:
+        """更新 Nacos 动态配置并自增版本号"""
+        self._nacos_cache.update(config)
+        self.config_version += 1
+
+    def __getattr__(self, item):
+        """透明代理到静态配置"""
+        return getattr(self._static, item)
+
+
+settings = DynamicSettings(AppSettings())

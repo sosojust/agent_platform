@@ -68,7 +68,8 @@ def init_nacos_config(settings) -> None:
 
 
 def _apply_config(settings, config: dict) -> None:
-    """将 Nacos 下发的配置覆盖到 settings 对象"""
+    """将 Nacos 下发的配置更新到动态配置代理"""
+    # 保持对静态配置对象的直接修改，以兼容旧代码直接访问 settings.llm.xxx
     if "llm_default_model" in config:
         settings.llm.default_model = config["llm_default_model"]
     if "llm_strong_model" in config:
@@ -95,12 +96,6 @@ def _apply_config(settings, config: dict) -> None:
         settings.llm.cache_task_ttl = json.dumps(config["llm_cache_task_ttl"], ensure_ascii=False)
     if "llm_cache_max_entries" in config:
         settings.llm.cache_max_entries = int(config["llm_cache_max_entries"])
-    # RAG 参数存到一个全局动态配置字典，各域的 pipeline 读取时优先用此处的值
-    if "rag_top_k_recall" in config:
-        settings._dynamic["rag_top_k_recall"] = config["rag_top_k_recall"]
-    if "rag_top_k_rerank" in config:
-        settings._dynamic["rag_top_k_rerank"] = config["rag_top_k_rerank"]
-    if "rag_rerank_threshold" in config:
-        settings._dynamic["rag_rerank_threshold"] = config["rag_rerank_threshold"]
-    if "agent_max_steps" in config:
-        settings._dynamic["agent_max_steps"] = config["agent_max_steps"]
+
+    # 统一存入统一的动态访问缓存
+    settings.update_dynamic(config)
