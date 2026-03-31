@@ -23,6 +23,7 @@ class AgentMeta:
     memory_config: MemoryConfig = field(default_factory=lambda: DEFAULT_MEMORY_CONFIG)
     # 该 Agent 支持的 MCP tool 名称列表（用于文档展示）
     tools: list[str] = field(default_factory=list)
+    sub_agents: list[str] = field(default_factory=list)
     orchestration_mode: Literal["command", "plan_execute"] = "command"
     routing_mode: Literal["rule", "llm", "hybrid"] = "hybrid"
     fallback_mode: Literal["command", "finalize"] = "command"

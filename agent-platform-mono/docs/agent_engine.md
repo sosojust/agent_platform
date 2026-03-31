@@ -12,7 +12,7 @@
 - 可复用基础工作流（base_agent）
 - 编排中间件流水线（Middleware / Guard）
 - Checkpoint 管理（Redis/内存）
-- 多 Agent 编排（子图/ToolNode）
+- 多 Agent 编排（Subagent Gateway / 子图）
 
 ## 模块与提供方式
 
@@ -27,6 +27,7 @@
   - `name`: 展示名称
   - `description`: 说明
   - `factory`: `() -> Graph`（返回可运行的 graph 实例）
+  - `sub_agents`: 当前 Agent 可派发的子 Agent 白名单，用于 plan-execute/动态编排中的并行调度
 - `domain_agents/*/register.py` 将本域 Agent 注册到注册表
 
 ### 2) 基础工作流（Base Agent）
@@ -67,12 +68,26 @@
   - 初始化 RedisSaver 失败时自动降级为 MemorySaver，保证可用；/ready 保持 Redis 连通性检查以决定是否放量
 
 ### 5) 多 Agent/子图编排
-- 能力（建议）：
-  - 子图：一个 Agent 作为 Tool（LangGraph 子图）
-  - 调度：主 Agent 的 ToolNode 调用子 Agent 完成子任务
-  - 状态隔离：各自 thread_id 与 checkpoint 独立（或共享会话）
-- 示例思路（伪代码）：
-  - policy 助手在复杂场景可调用 claim 子 Agent 完成理赔进度核验
+- 位置：`core/agent_engine/subagent_gateway.py`
+- 当前能力：
+  - `SubagentTask`：定义 `agent_id`、`user_input`、`task_id`、`shared_context`、`metadata`
+  - `SubagentResult`：统一返回 `status/output/step_count/error/mode/duration_ms`
+  - `subagent_gateway.run_batch(...)`：并发执行多个子 Agent，并保持结果顺序稳定，同时发出批次/任务级自定义事件
+  - `make_subagent_executor_node(...)`：将子 Agent 调度封装为可挂接到 LangGraph 的标准节点
+  - `subagent_aggregator.aggregate_subagent_results(...)`：将多个子 Agent 结果统一聚合为 `final_output/success_count/error_count/selected_agent_ids/conflict_detected`
+  - `subagent_planner_gateway.resolve(...)`：通过可插拔 Provider 输出 `route_decision`，支持 `rule/llm/hybrid`
+  - `workflows/plan_execute.py`：Planner 会输出显式 `route_decision`，决定 `executor/sub_agents/aggregation_strategy/aggregation_params`，并把聚合结果写入 `subagent_aggregation`、把耗时指标写入 `subagent_metrics`
+- 执行语义：
+  - 子 Agent 默认复用注册表与编排工厂，主/子 Agent 共享 `tenant_id`
+  - 子 Agent 自动生成独立 `thread_id`：`{parent_conversation_id}:{task_id|agent_id}`
+  - 父任务 `memory_context`、`rag_context` 与显式 `shared_context` 会被拼接后透传给子 Agent
+  - 并发度与超时分别受 `ORCH_SUBAGENT_MAX_CONCURRENCY`、`ORCH_SUBAGENT_TIMEOUT_SECONDS` 控制
+  - 聚合器当前内置 `summary`、`priority`、`vote`、`confidence_rank`、`conflict_resolution` 五种策略，支持优先级顺序、最低置信度阈值、冲突裁决模板等参数
+  - `/agent/stream` 会透传 `subagent.planner.decision`、`subagent.batch.*`、`subagent.task.*`、`subagent.aggregation.completed`、`subagent.metrics` 等自定义事件
+  - `GET /observability/subagents` 返回统一监控看板快照，可查看最近批次、聚合记录与平均耗时
+- 适用场景：
+  - 主 Agent 并行查询保单、理赔、客户三个域后再汇总答案
+  - 主 Agent 将材料核验、数据补全、结论整理拆分为多个可独立失败/超时的子任务
 
 ## domain_agents 使用边界
 - domain_agents 负责：
@@ -143,6 +158,7 @@
 - 建议
   - 优先复用 base_agent 与标准节点；通过 `MemoryConfig`/`RetrievalPlan`/工具清单调参
   - 优先复用中间件机制承载横切逻辑，不要把 Guard/Context 拼装重新写回 LLM 节点
+  - 需要并行编排多个域时优先复用 `subagent_gateway`，不要在业务层手写 `asyncio.gather + agent_gateway.get`
   - 必接入 checkpointer，长链路务必可恢复
   - 工具统一走 `core/tool_service`，便于鉴权与观测
   - 日志使用 `shared/logging`，自动带 `tenant_id`/`trace_id`

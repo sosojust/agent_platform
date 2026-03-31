@@ -50,13 +50,31 @@
 2. **配置版本化**：
    - 增加 `config_version` 字段，确保服务运行时的配置快照具备可追溯性。
 
-### 【P2】核心引擎：子 Agent 并发编排支持
+### 【P2】核心引擎：子 Agent 并发编排支持 [🚧 已启动]
 **痛点**：目前 `agent_engine` 主要是单 Agent 的串行工作流。对于复杂的企业级任务（如需要同时查询多个独立子系统并汇总，或者执行多步材料核验），单线串行效率低且容易“偏题”。
 **Core 层演进方案**：
 1. **提供原生 `SubagentExecutor`**：
    - 在 `core/agent_engine` 增加子 Agent 调度机制，允许主 Agent (Lead Agent) 作为图中的一个节点，并发 Spawn 多个子 Agent 图。
 2. **状态隔离与上下文共享**：
    - 子 Agent 拥有独立的 `thread_id` 和独立的步数控制、超时控制机制，但与主 Agent 共享 `tenant_id` 和高维意图上下文。
+
+**当前落地进度（2026-03-31）**：
+1. 已新增 `core/agent_engine/subagent_gateway.py`，提供 `SubagentTask`、`SubagentResult`、`subagent_gateway.run_batch(...)` 与 `make_subagent_executor_node(...)` 四个基础构件。
+2. 已实现子 Agent 线程隔离策略：默认按 `{parent_conversation_id}:{task_id|agent_id}` 生成独立 `thread_id`，同时复用主流程的 `tenant_id`。
+3. 已实现高维上下文共享：主流程的 `memory_context`、`rag_context` 与显式 `shared_context` 会在进入子 Agent 前统一拼装并透传。
+4. 已增加运行时治理：通过 `ORCH_SUBAGENT_MAX_CONCURRENCY` 与 `ORCH_SUBAGENT_TIMEOUT_SECONDS` 控制并发度与超时。
+5. 已将 `SubagentGateway` 接入 `workflows/plan_execute.py`：当主 Agent 在 `AgentMeta.sub_agents` 中声明可派发子 Agent，且请求命中“并行/同时/汇总”等关键词时，会自动走并发子 Agent 执行路径。
+6. 已新增 `subagent_planner_gateway.py`、`subagent_planner_provider.py` 与 `subagent_planner_provider_protocols.py`，将 Planner 决策抽象为可插拔 Provider，当前支持 `rule/llm/hybrid` 三种模式。
+7. Planner 已输出显式 `route_decision`，将 `executor/sub_agents/aggregation_strategy/aggregation_params/reason/decision_source` 作为决策结果写入状态，不再由执行节点隐式决定聚合策略。
+8. 已新增 `core/agent_engine/subagent_aggregator.py`，将多子 Agent 返回统一收敛为 `final_output/success_count/error_count/selected_agent_ids/conflict_detected` 等标准字段，内置 `summary`、`priority`、`vote`、`confidence_rank`、`conflict_resolution` 五种聚合策略，并支持优先级顺序、最低置信度阈值、冲突裁决模板等参数。
+9. `workflows/state.py` 已补齐 `subagent_aggregation` 与 `subagent_metrics` 状态字段，`plan_execute` 在并发子 Agent 执行后会同时回填原始结果、聚合结果与耗时指标，便于后续总结、流式输出与审计。
+10. `subagent_gateway`、`metrics_gateway` 与 `/agent/stream` 已补齐自定义流式事件、耗时指标与监控看板快照：支持 `subagent.planner.decision`、`subagent.batch.*`、`subagent.task.*`、`subagent.aggregation.completed`、`subagent.metrics` 事件，以及 `GET /observability/subagents` 的统一看板输出。
+11. 已补齐单元/集成测试：覆盖 Provider 决策、参数化聚合、监控看板路由、并发执行、缺失子 Agent 错误、默认上下文注入、子线程隔离、流式自定义事件与 plan-execute 集成派发。
+
+**后续待补齐**：
+- 将当前 Provider 体系继续扩展为真正的 Router/Planner 组合架构，使规则、LLM、ToolRouter 与历史反馈可以共同参与决策。
+- 为聚合策略补齐更细粒度的策略参数治理能力，如 vote 平票裁决规则、策略白名单与租户级覆盖。
+- 将当前事件/耗时指标进一步接入告警阈值、长期存储与 tenant/agent 维度 SLA 看板，形成完整运营闭环。
 
 ---
 

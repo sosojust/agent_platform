@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.gateway.app import app
+from shared.observability.metrics_gateway import metrics_gateway
 
 
 @pytest.fixture
@@ -71,3 +72,42 @@ async def test_run_agent_returns_conversation_id(
     })
     assert resp.status_code == 200
     assert "conversation_id" in resp.json()
+
+
+async def test_observability_subagent_dashboard(client: AsyncClient) -> None:
+    metrics_gateway.reset()
+    metrics_gateway.record_batch(
+        {
+            "tenant_id": "tenant_test_001",
+            "parent_agent_id": "lead-agent",
+            "task_count": 2,
+            "success_count": 2,
+            "error_count": 0,
+            "batch_duration_ms": 123,
+        }
+    )
+    metrics_gateway.record_aggregation(
+        {
+            "tenant_id": "tenant_test_001",
+            "parent_agent_id": "lead-agent",
+            "strategy": "vote",
+            "aggregation_duration_ms": 12,
+        }
+    )
+
+    resp = await client.get("/observability/subagents")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["summary"]["batch_count"] >= 1
+    assert data["summary"]["task_count"] >= 2
+    assert data["recent_batches"][0]["parent_agent_id"] == "lead-agent"
+    assert data["storage_backend"] in {"memory", "redis"}
+
+    scoped_resp = await client.get(
+        "/observability/subagents",
+        params={"tenant_id": "tenant_test_001", "parent_agent_id": "lead-agent"},
+    )
+    assert scoped_resp.status_code == 200
+    scoped_data = scoped_resp.json()
+    assert scoped_data["summary"]["batch_count"] >= 1

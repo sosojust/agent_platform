@@ -3,6 +3,8 @@
 所有环境变量在此定义，通过 .env 文件或环境变量注入。
 Nacos 动态参数在 nacos.py 中覆盖。
 """
+from typing import Any
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -90,6 +92,55 @@ class AppSettings(BaseSettings):
     orch_max_replans: int = Field(default=2, alias="ORCH_MAX_REPLANS")
     orch_plan_execute_agents: list[str] = Field(default_factory=list, alias="ORCH_PLAN_EXECUTE_AGENTS")
     orch_plan_execute_tenants: list[str] = Field(default_factory=list, alias="ORCH_PLAN_EXECUTE_TENANTS")
+    orch_subagent_max_concurrency: int = Field(default=3, alias="ORCH_SUBAGENT_MAX_CONCURRENCY")
+    orch_subagent_timeout_seconds: float = Field(default=45.0, alias="ORCH_SUBAGENT_TIMEOUT_SECONDS")
+    orch_subagent_planner_provider: str = Field(default="rule", alias="ORCH_SUBAGENT_PLANNER_PROVIDER")
+    orch_subagent_priority_order: list[str] = Field(default_factory=list, alias="ORCH_SUBAGENT_PRIORITY_ORDER")
+    orch_subagent_min_confidence: float = Field(default=0.0, alias="ORCH_SUBAGENT_MIN_CONFIDENCE")
+    orch_subagent_conflict_resolution_template: str = Field(
+        default="检测到子 Agent 结论存在冲突，已按置信度排序给出建议：\n{ranked_candidates}\n建议采用 {selected_agent_id} 的结果（confidence={selected_confidence:.2f}）",
+        alias="ORCH_SUBAGENT_CONFLICT_RESOLUTION_TEMPLATE",
+    )
+    orch_subagent_hybrid_merge_mode: str = Field(
+        default="consensus_weighted",
+        alias="ORCH_SUBAGENT_HYBRID_MERGE_MODE",
+    )
+    orch_subagent_hybrid_rule_weight: float = Field(
+        default=0.6,
+        alias="ORCH_SUBAGENT_HYBRID_RULE_WEIGHT",
+    )
+    orch_subagent_hybrid_llm_weight: float = Field(
+        default=0.4,
+        alias="ORCH_SUBAGENT_HYBRID_LLM_WEIGHT",
+    )
+    orch_subagent_hybrid_tie_breaker: str = Field(
+        default="rule",
+        alias="ORCH_SUBAGENT_HYBRID_TIE_BREAKER",
+    )
+    orch_subagent_hybrid_strategy_merge_mode: str = Field(
+        default="higher_confidence",
+        alias="ORCH_SUBAGENT_HYBRID_STRATEGY_MERGE_MODE",
+    )
+    orch_subagent_hybrid_subagent_merge_mode: str = Field(
+        default="union",
+        alias="ORCH_SUBAGENT_HYBRID_SUBAGENT_MERGE_MODE",
+    )
+    orch_subagent_aggregation_overrides: dict[str, Any] = Field(
+        default_factory=dict,
+        alias="ORCH_SUBAGENT_AGGREGATION_OVERRIDES",
+    )
+    observability_subagent_backend: str = Field(
+        default="memory",
+        alias="OBS_SUBAGENT_BACKEND",
+    )
+    observability_subagent_redis_prefix: str = Field(
+        default="agent_platform:subagent_metrics",
+        alias="OBS_SUBAGENT_REDIS_PREFIX",
+    )
+    observability_subagent_recent_limit: int = Field(
+        default=20,
+        alias="OBS_SUBAGENT_RECENT_LIMIT",
+    )
     mcp_service_url: str = "http://localhost:8004"
     internal_gateway_url: str = "http://localhost:8000"
     gateway_timeout: int = 30
@@ -115,21 +166,21 @@ class AppSettings(BaseSettings):
 class DynamicSettings:
     def __init__(self, static_settings: AppSettings):
         self._static = static_settings
-        self._nacos_cache: dict = {}
+        self._nacos_cache: dict[str, Any] = {}
         self.config_version: int = 0
 
-    def get(self, key: str, fallback=None):
+    def get(self, key: str, fallback: Any = None) -> Any:
         """优先 Nacos 动态值，未命中则回退到 pydantic 静态值"""
         if key in self._nacos_cache:
             return self._nacos_cache[key]
         return getattr(self._static, key, fallback)
 
-    def update_dynamic(self, config: dict) -> None:
+    def update_dynamic(self, config: dict[str, Any]) -> None:
         """更新 Nacos 动态配置并自增版本号"""
         self._nacos_cache.update(config)
         self.config_version += 1
 
-    def __getattr__(self, item):
+    def __getattr__(self, item: str) -> Any:
         """透明代理到静态配置"""
         return getattr(self._static, item)
 
