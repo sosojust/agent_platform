@@ -98,7 +98,10 @@ agent-platform-mono/
 
 - `workflows/base_agent.py`：基础编排骨架
 - `workflows/middlewares.py`：编排中间件流水线（`MaxStepsGuard`、`ContextInjector`）
-- `workflows/plan_execute.py`：计划执行模式
+- `workflows/plan_execute.py`：计划执行模式（通过可插拔 Planner Provider 输出显式 `route_decision`，支持子 Agent 派发策略与聚合策略决策）
+- `subagent_gateway.py`：子 Agent 并发调度入口（任务建模、线程隔离、上下文透传、并发/超时治理、事件上报）
+- `subagent_aggregator.py`：子 Agent 结果标准聚合器（summary/priority/vote/confidence_rank/conflict_resolution 策略）
+- `subagent_planner_gateway.py`：子 Agent Planner Gateway（支持 `rule/llm/hybrid` Provider）
 - `orchestrator_factory.py`：编排工厂与模式分发
 - `mode_selector.py`：模式选择与降级策略
 - `tools/router.py`：工具选择与提示词管理接入
@@ -133,13 +136,13 @@ agent-platform-mono/
 | 配置组 | 关键变量 |
 |---|---|
 | 服务 | `APP_ENV` `HOST` `PORT` |
-| 编排 | `ORCH_DEFAULT_MODE` `ORCH_MAX_STEPS` `ORCH_MAX_REPLANS` `ORCH_PLAN_EXECUTE_AGENTS` `ORCH_PLAN_EXECUTE_TENANTS` |
+| 编排 | `ORCH_DEFAULT_MODE` `ORCH_MAX_STEPS` `ORCH_MAX_REPLANS` `ORCH_PLAN_EXECUTE_AGENTS` `ORCH_PLAN_EXECUTE_TENANTS` `ORCH_SUBAGENT_MAX_CONCURRENCY` `ORCH_SUBAGENT_TIMEOUT_SECONDS` `ORCH_SUBAGENT_PLANNER_PROVIDER` `ORCH_SUBAGENT_PRIORITY_ORDER` `ORCH_SUBAGENT_MIN_CONFIDENCE` `ORCH_SUBAGENT_CONFLICT_RESOLUTION_TEMPLATE` `ORCH_SUBAGENT_HYBRID_MERGE_MODE` `ORCH_SUBAGENT_HYBRID_RULE_WEIGHT` `ORCH_SUBAGENT_HYBRID_LLM_WEIGHT` `ORCH_SUBAGENT_HYBRID_TIE_BREAKER` `ORCH_SUBAGENT_HYBRID_STRATEGY_MERGE_MODE` `ORCH_SUBAGENT_HYBRID_SUBAGENT_MERGE_MODE` `ORCH_SUBAGENT_AGGREGATION_OVERRIDES` |
 | 模型 | `LLM_DEFAULT_MODEL` `LLM_STRONG_MODEL` `LLM_MEDIUM_MODEL` `LLM_NANO_MODEL` `LLM_LOCAL_MODEL` `LLM_ROUTER_DEPLOYMENTS` `LLM_ROUTER_COOLDOWN_SECONDS` `LLM_ROUTER_MAX_ATTEMPTS` `LLM_CACHE_ENABLED` `LLM_CACHE_DEFAULT_TTL_SECONDS` `LLM_CACHE_SCENE_TTL` `LLM_CACHE_TASK_TTL` `LLM_CACHE_MAX_ENTRIES` `OPENAI_API_KEY` `ANTHROPIC_API_KEY` |
 | Prompt/Nacos | `NACOS_SERVER_ADDR` `NACOS_NAMESPACE` `NACOS_GROUP` `NACOS_DATA_ID` |
 | 向量与检索 | `VECTOR_DB_BACKEND` `QDRANT_URL` `EMBEDDING_MODEL` `RERANK_MODEL` `EMBEDDING_DEVICE` |
 | 缓存与状态 | `REDIS_URL` `CHECKPOINT_BACKEND` `CHECKPOINT_TTL` |
 | 工具网关 | `INTERNAL_GATEWAY_URL` `GATEWAY_TIMEOUT` |
-| 观测 | `LANGFUSE_HOST` `LANGFUSE_PUBLIC_KEY` `LANGFUSE_SECRET_KEY` `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| 观测 | `LANGFUSE_HOST` `LANGFUSE_PUBLIC_KEY` `LANGFUSE_SECRET_KEY` `OTEL_EXPORTER_OTLP_ENDPOINT` `OBS_SUBAGENT_BACKEND` `OBS_SUBAGENT_REDIS_PREFIX` `OBS_SUBAGENT_RECENT_LIMIT` |
 
 ## 项目使用说明
 
@@ -162,6 +165,7 @@ uvicorn main:app --reload --port 8000
 - `GET /agent/list`：查看已注册 Agent
 - `POST /agent/run`：同步执行
 - `POST /agent/stream`：SSE 流式执行
+- `GET /observability/subagents`：查看子 Agent 监控看板快照
 - `GET /tools`：列出工具（需 `X-App-Id/X-App-Token`）
 - `POST /tools/invoke`：调用工具（需 `X-App-Id/X-App-Token`）
 
@@ -221,6 +225,18 @@ ruff check .
 ## 变更记录
 
 - 2026-03-31
+  - `core/agent_engine/agents/registry.py` 为 `AgentMeta` 增加 `sub_agents` 声明式字段，用于定义主 Agent 可派发的子 Agent 白名单
+  - `core/agent_engine/subagent_planner_gateway.py`、`subagent_planner_provider.py`、`subagent_planner_provider_protocols.py` 新增可插拔 Planner Provider 机制，支持 `rule/llm/hybrid` 三种决策模式
+  - `core/agent_engine/workflows/plan_execute.py` 输出显式 `route_decision`，由 Planner Provider 决定 `executor/sub_agents/aggregation_strategy/aggregation_params`，并回填 `subagent_metrics`
+  - `core/agent_engine/subagent_gateway.py` 增强子 Agent 调度链路，补齐 `duration_ms`、批次/任务级自定义流式事件与耗时日志
+  - `core/agent_engine/subagent_aggregator.py` 扩展标准聚合器，支持参数化优先级顺序、最低置信度阈值、冲突裁决模板，并新增 `vote`、`confidence_rank`、`conflict_resolution` 策略
+  - `shared/observability/metrics_gateway.py` 与 `GET /observability/subagents` 接入统一监控看板快照，沉淀子 Agent 批次/聚合指标
+  - `app/gateway/routers/agents.py` 在 `/agent/stream` 中透传 `on_custom_event`，使子 Agent 派发与聚合事件可直接通过 SSE 输出
+  - `shared/observability/metrics_gateway.py` 支持 `memory/redis` 可切换存储后端，指标快照可按 `tenant_id/parent_agent_id` 维度聚合并支持多实例共享
+  - `core/agent_engine/subagent_planner_provider.py` 的 Hybrid Provider 升级为显式合并策略（权重投票、冲突裁决、子 Agent 合并模式），不再仅 rule 优先
+  - 子 Agent 聚合参数支持租户级/Agent级/租户+Agent级动态覆盖（`ORCH_SUBAGENT_AGGREGATION_OVERRIDES`），并在 `plan_execute` 的 `route_decision` 输出置信度与合并调试信息
+  - `shared/config/settings.py` 新增子 Agent 调度配置项：`ORCH_SUBAGENT_MAX_CONCURRENCY`、`ORCH_SUBAGENT_TIMEOUT_SECONDS`
+  - 新增/扩展测试：`tests/core/agent_engine/test_subagent_planner_gateway.py`、`tests/core/agent_engine/test_subagent_gateway.py`、`tests/core/agent_engine/test_subagent_aggregator.py`、`tests/core/agent_engine/test_plan_execute.py` 与 `tests/test_main.py`，覆盖 Provider 决策、参数化聚合、监控看板路由与流式自定义事件
   - `core/memory_rag/memory/extractor.py` 新增 `LLMFactExtractor`，将短期对话提取为结构化长期事实并补齐 `category/confidence/timestamp`
   - `core/memory_rag/memory/manager.py` 新增长期记忆内容 Hash 去重与 `max_injection_tokens` 预算控制，统一输出 `【相关历史事实】` / `【近期对话】` 上下文格式
   - `core/agent_engine/workflows/middlewares.py` 新增编排中间件流水线，将 `MaxStepsGuard` 与 `ContextInjector` 从 LLM 推理节点中解耦

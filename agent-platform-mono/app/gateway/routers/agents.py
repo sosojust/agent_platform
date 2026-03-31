@@ -104,6 +104,11 @@ async def stream_agent(request: AgentRunRequest) -> StreamingResponse:
                     token = event["data"]["chunk"].content
                     if token:
                         yield f"data: {json.dumps({'event': 'token', 'data': token})}\n\n"
+                elif kind == "on_custom_event":
+                    yield (
+                        "data: "
+                        f"{json.dumps({'event': event['name'], 'data': event['data']})}\n\n"
+                    )
                 elif kind == "on_tool_start":
                     yield f"data: {json.dumps({'event': 'step_start', 'data': event['name']})}\n\n"
                 elif kind == "on_tool_end":

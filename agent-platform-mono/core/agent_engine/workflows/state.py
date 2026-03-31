@@ -18,6 +18,9 @@ class OrchestratorState(TypedDict):
     selected_tools: list[str]
     plan: list[dict[str, Any]]
     past_steps: list[dict[str, Any]]
+    subagent_results: list[dict[str, Any]]
+    subagent_aggregation: dict[str, Any]
+    subagent_metrics: dict[str, Any]
     replan_count: int
     metadata: dict[str, Any]
 
@@ -35,6 +38,9 @@ def make_initial_state(messages: list[BaseMessage], conversation_id: str, tenant
         "selected_tools": [],
         "plan": [],
         "past_steps": [],
+        "subagent_results": [],
+        "subagent_aggregation": {},
+        "subagent_metrics": {},
         "replan_count": 0,
         "metadata": {},
     }
