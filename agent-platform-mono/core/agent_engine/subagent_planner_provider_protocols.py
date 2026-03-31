@@ -15,16 +15,31 @@ SubagentAggregationStrategy = Literal[
 ]
 
 
-class SubagentPlannerDecision(TypedDict):
+class AggregationConfig(TypedDict):
+    """Aggregation phase configuration — how results should be combined."""
+    aggregation_strategy: SubagentAggregationStrategy
+    preferred_agent_ids: list[str]
+    aggregation_params: dict[str, Any]
+
+
+class RoutingDecision(TypedDict):
+    """Routing phase decision — which executor to use and which sub-agents to invoke."""
     executor: SubagentPlannerExecutor
     reason: str
     decision_source: str
     sub_agents: list[str]
-    aggregation_strategy: SubagentAggregationStrategy
-    preferred_agent_ids: list[str]
-    aggregation_params: dict[str, Any]
     confidence_score: float
     merge_debug: dict[str, Any]
+
+
+class SubagentPlannerDecision(RoutingDecision, AggregationConfig):
+    """Combined planner decision (routing + aggregation).
+
+    Kept as a single TypedDict for backward compatibility with existing callers.
+    Downstream code should prefer reading routing fields from RoutingDecision and
+    aggregation fields from AggregationConfig when the two concerns need to be
+    handled separately.
+    """
 
 
 class SubagentPlannerProvider(Protocol):

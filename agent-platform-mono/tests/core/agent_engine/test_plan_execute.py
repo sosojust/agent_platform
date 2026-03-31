@@ -250,3 +250,118 @@ async def test_plan_execute_uses_explicit_vote_strategy_and_emits_custom_events(
     assert "subagent.execution.started" in custom_event_names
     assert "subagent.aggregation.completed" in custom_event_names
     assert "subagent.metrics" in custom_event_names
+
+
+# ── Degradation path tests ────────────────────────────────────────────────────
+
+async def test_plan_execute_partial_subagent_failure_aggregates_remaining(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Aggregator should produce output even when some sub-agents fail."""
+    monkeypatch.setattr(plan_execute, "make_retrieve_memory_node", lambda cfg: _noop_node)
+    monkeypatch.setattr(plan_execute, "make_retrieve_rag_node", lambda cfg: _noop_node)
+    monkeypatch.setattr(plan_execute, "make_update_memory_node", lambda cfg: _noop_node)
+    monkeypatch.setattr(
+        "core.agent_engine.workflows.plan_execute.llm_gateway.get_chat",
+        lambda tools, scene: FakeChatModel("最终汇总"),
+    )
+
+    async def fake_run_batch(tasks: list[Any], **_: Any) -> list[SubagentResult]:
+        return [
+            SubagentResult(
+                task_id="policy-assistant",
+                agent_id="policy-assistant",
+                conversation_id="conv-p:policy-assistant",
+                status="success",
+                output="保单正常",
+                step_count=1,
+                mode="command",
+            ),
+            SubagentResult(
+                task_id="claim-assistant",
+                agent_id="claim-assistant",
+                conversation_id="conv-p:claim-assistant",
+                status="error",
+                output="",
+                step_count=0,
+                mode="unknown",
+                error="timeout",
+            ),
+        ]
+
+    monkeypatch.setattr("core.agent_engine.workflows.plan_execute.subagent_gateway.run_batch", fake_run_batch)
+    monkeypatch.setattr(
+        "core.agent_engine.workflows.plan_execute.agent_gateway.get",
+        lambda agent_id: AgentMeta(agent_id=agent_id, name=agent_id, description="", factory=lambda: None),
+    )
+
+    graph = plan_execute.build_plan_execute_graph(_meta(sub_agents=["policy-assistant", "claim-assistant"]))
+    result = await graph.ainvoke(
+        make_initial_state([HumanMessage(content="请并行查询保单和理赔")], "conv-p", "tenant-p")
+    )
+
+    agg = result["subagent_aggregation"]
+    assert agg["success_count"] == 1
+    assert agg["error_count"] == 1
+    assert agg["partial_failure"] is True
+    assert result["subagent_metrics"]["error_count"] == 1
+    # Final output should still be produced from the successful agent
+    assert result["messages"][-1].content != ""
+
+
+async def test_plan_execute_replan_limit_converges_to_finalize(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When replan_count reaches max_replans the graph must converge to finalize."""
+    monkeypatch.setattr(plan_execute, "make_retrieve_memory_node", lambda cfg: _noop_node)
+    monkeypatch.setattr(plan_execute, "make_retrieve_rag_node", lambda cfg: _noop_node)
+    monkeypatch.setattr(plan_execute, "make_update_memory_node", lambda cfg: _noop_node)
+
+    call_count = {"n": 0}
+
+    def fake_get_chat(tools: list[Any], scene: str) -> FakeChatModel:
+        call_count["n"] += 1
+        return FakeChatModel("步骤结果" if scene == "plan_execute_step" else "最终总结")
+
+    monkeypatch.setattr("core.agent_engine.workflows.plan_execute.llm_gateway.get_chat", fake_get_chat)
+
+    # Use a meta with max_replans=1 so the limit is hit quickly
+    meta = AgentMeta(
+        agent_id="lead-agent",
+        name="Lead Agent",
+        description="desc",
+        factory=lambda: None,
+        orchestration_mode="plan_execute",
+        sub_agents=[],
+        max_replans=1,
+    )
+    graph = plan_execute.build_plan_execute_graph(meta)
+    result = await graph.ainvoke(
+        make_initial_state([HumanMessage(content="先查保单，再总结")], "conv-r", "tenant-r")
+    )
+
+    # Graph must terminate (not loop forever) and produce a final message
+    assert result["messages"][-1].content != ""
+
+
+async def test_plan_execute_max_steps_guard_triggers_finalize(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """max_steps guard in after_executor should route to finalize, not loop."""
+    monkeypatch.setattr(plan_execute, "make_retrieve_memory_node", lambda cfg: _noop_node)
+    monkeypatch.setattr(plan_execute, "make_retrieve_rag_node", lambda cfg: _noop_node)
+    monkeypatch.setattr(plan_execute, "make_update_memory_node", lambda cfg: _noop_node)
+    monkeypatch.setattr(
+        "core.agent_engine.workflows.plan_execute.llm_gateway.get_chat",
+        lambda tools, scene: FakeChatModel("结果"),
+    )
+    monkeypatch.setattr("core.agent_engine.workflows.plan_execute.settings.orch_max_steps", 1)
+
+    graph = plan_execute.build_plan_execute_graph(_meta())
+    result = await graph.ainvoke(
+        make_initial_state([HumanMessage(content="先查保单，再查理赔，再总结")], "conv-s", "tenant-s")
+    )
+
+    # Should terminate after hitting max_steps=1, not exhaust all plan steps
+    assert result["messages"][-1].content != ""
+    assert result.get("step_count", 0) <= 2  # finalize adds one more message

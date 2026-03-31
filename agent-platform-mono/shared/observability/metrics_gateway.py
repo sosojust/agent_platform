@@ -186,7 +186,13 @@ class MetricsGateway:
             cast(Any, client).ping()
             self._redis_client = client
             return self._redis_client
-        except Exception:
+        except Exception as exc:
+            # Degrade to in-memory backend silently, but log a warning so
+            # operators can detect that Redis metrics persistence is unavailable.
+            import logging
+            logging.getLogger(__name__).warning(
+                "metrics_gateway_redis_unavailable: falling back to memory backend. error=%s", exc
+            )
             self._redis_client = None
             return None
 
@@ -214,7 +220,11 @@ class MetricsGateway:
                 pipeline.expire(summary_key, self._redis_ttl)
                 pipeline.expire(recent_key, self._redis_ttl)
                 pipeline.execute()
-            except Exception:
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "metrics_gateway_redis_write_failed: batch metrics lost. error=%s", exc
+                )
                 self._redis_client = None
                 return
 
@@ -235,7 +245,11 @@ class MetricsGateway:
                 pipeline.expire(summary_key, self._redis_ttl)
                 pipeline.expire(recent_key, self._redis_ttl)
                 pipeline.execute()
-            except Exception:
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "metrics_gateway_redis_write_failed: aggregation metrics lost. error=%s", exc
+                )
                 self._redis_client = None
                 return
 

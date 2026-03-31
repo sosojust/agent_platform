@@ -7,6 +7,11 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from core.agent_engine.agents.registry import AgentMeta
+from core.agent_engine.subagent_aggregation_params import (
+    load_aggregation_overrides as _load_aggregation_overrides,
+    resolve_scope_override as _resolve_scope_override,
+    scoped_aggregation_params as _scoped_aggregation_params,
+)
 from core.agent_engine.subagent_planner_provider_protocols import (
     SubagentAggregationStrategy,
     SubagentPlannerDecision,
@@ -95,93 +100,9 @@ def _as_str_list(value: Any, fallback: list[str]) -> list[str]:
     return list(fallback)
 
 
-def _load_aggregation_overrides() -> dict[str, Any]:
-    raw = settings.get(
-        "orch_subagent_aggregation_overrides",
-        getattr(settings, "orch_subagent_aggregation_overrides", {}),
-    )
-    if isinstance(raw, Mapping):
-        return dict(raw)
-    if isinstance(raw, str) and raw.strip():
-        try:
-            parsed = json.loads(raw)
-            return dict(parsed) if isinstance(parsed, Mapping) else {}
-        except Exception:
-            return {}
-    return {}
-
-
-def _resolve_scope_override(
-    *,
-    strategy: SubagentAggregationStrategy,
-    scope_value: Mapping[str, Any] | None,
-) -> dict[str, Any]:
-    if not scope_value:
-        return {}
-    merged: dict[str, Any] = {}
-    merged.update(_to_dict(scope_value.get("all")))
-    strategies = _to_mapping(scope_value.get("strategies"))
-    merged.update(_to_dict(strategies.get(strategy)))
-    merged.update(_to_dict(scope_value.get(strategy)))
-    return merged
-
-
-def _scoped_aggregation_params(
-    *,
-    meta: AgentMeta,
-    state: Mapping[str, Any],
-    available_sub_agents: list[str],
-    strategy: SubagentAggregationStrategy,
-) -> dict[str, Any]:
-    tenant_id = str(state.get("tenant_id", ""))
-    defaults = {
-        "preferred_agent_ids": list(
-            settings.get("orch_subagent_priority_order", getattr(settings, "orch_subagent_priority_order", []))
-            or available_sub_agents
-        ),
-        "min_confidence": float(
-            settings.get("orch_subagent_min_confidence", getattr(settings, "orch_subagent_min_confidence", 0.0))
-        ),
-        "conflict_resolution_template": str(
-            settings.get(
-                "orch_subagent_conflict_resolution_template",
-                getattr(
-                    settings,
-                    "orch_subagent_conflict_resolution_template",
-                    "检测到子 Agent 结论存在冲突，已按置信度排序给出建议：\n{ranked_candidates}\n建议采用 {selected_agent_id} 的结果（confidence={selected_confidence:.2f}）",
-                ),
-            )
-        ),
-    }
-    overrides = _load_aggregation_overrides()
-    merged = dict(defaults)
-    merged.update(_resolve_scope_override(strategy=strategy, scope_value=_to_mapping(overrides.get("default"))))
-    merged.update(
-        _resolve_scope_override(
-            strategy=strategy,
-            scope_value=_to_mapping(_to_mapping(overrides.get("tenants")).get(tenant_id)),
-        )
-    )
-    merged.update(
-        _resolve_scope_override(
-            strategy=strategy,
-            scope_value=_to_mapping(_to_mapping(overrides.get("agents")).get(meta.agent_id)),
-        )
-    )
-    tenant_agent_key = f"{tenant_id}:{meta.agent_id}" if tenant_id else meta.agent_id
-    merged.update(
-        _resolve_scope_override(
-            strategy=strategy,
-            scope_value=_to_mapping(_to_mapping(overrides.get("tenant_agents")).get(tenant_agent_key)),
-        )
-    )
-    preferred = _as_str_list(merged.get("preferred_agent_ids"), available_sub_agents)
-    merged["preferred_agent_ids"] = [agent_id for agent_id in preferred if agent_id in available_sub_agents]
-    if not merged["preferred_agent_ids"]:
-        merged["preferred_agent_ids"] = list(available_sub_agents)
-    merged["min_confidence"] = _to_float(merged.get("min_confidence"), 0.0)
-    merged["conflict_resolution_template"] = str(merged.get("conflict_resolution_template", ""))
-    return merged
+# _load_aggregation_overrides, _resolve_scope_override, _scoped_aggregation_params
+# have been extracted to subagent_aggregation_params.py for independent testability.
+# They are imported at the top of this module as private aliases.
 
 
 def _build_decision(

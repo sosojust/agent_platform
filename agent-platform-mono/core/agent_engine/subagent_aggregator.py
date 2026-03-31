@@ -366,6 +366,10 @@ def _select_highest_confidence(
 
 
 def _has_conflict(success_results: Sequence[Mapping[str, Any]]) -> bool:
+    # NOTE: Conflict detection uses exact string deduplication after stripping whitespace.
+    # Two outputs that are semantically equivalent but worded differently will be treated
+    # as conflicting. This is an intentional approximation — semantic similarity comparison
+    # (e.g. via embedding_gateway) is tracked as a future improvement (P2).
     normalized_outputs = {
         str(result.get("output", "")).strip()
         for result in success_results

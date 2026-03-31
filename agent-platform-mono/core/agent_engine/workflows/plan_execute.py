@@ -112,11 +112,19 @@ async def _emit_custom_event(
 ) -> None:
     try:
         await adispatch_custom_event(name, data, config=config)
-    except RuntimeError:
+    except Exception:
+        # Swallow all dispatch errors (RuntimeError when no handler is registered,
+        # serialization failures, etc.) to avoid breaking the calling chain.
+        logger.debug("custom_event_dispatch_failed", event_name=name)
         return
 
 
 def build_plan_execute_graph(meta: AgentMeta) -> Any:
+    # NOTE: The inner async functions (planner, executor, replanner, finalize) capture
+    # `meta`, `cfg`, and `max_replans` from this outer scope via closure.
+    # This is safe as long as the graph is built once per AgentMeta instance and not
+    # shared across concurrent requests. Do NOT reuse a compiled graph across different
+    # meta instances or dynamically rebuild it at request time without reviewing this constraint.
     cfg = meta.memory_config or DEFAULT_MEMORY_CONFIG
     max_replans = max(int(meta.max_replans), int(settings.orch_max_replans))
 
@@ -156,92 +164,101 @@ def build_plan_execute_graph(meta: AgentMeta) -> Any:
             }
         return {"plan": _build_plan_from_text(user_input), "route_decision": route_decision}
 
-    async def executor(state: OrchestratorState, config: RunnableConfig | None = None) -> dict[str, Any]:
-        plan = list(state.get("plan", []))
-        if not plan:
-            return {}
-        step = plan.pop(0)
-        goal = str(step.get("goal", ""))
-        if step.get("executor") == "subagents":
-            batch_started_at = perf_counter()
-            aggregation_strategy = _resolve_aggregation_strategy(step.get("aggregation_strategy", "summary"))
-            await _emit_custom_event(
-                "subagent.execution.started",
-                {
-                    "conversation_id": state["conversation_id"],
-                    "tenant_id": state["tenant_id"],
-                    "parent_agent_id": meta.agent_id,
-                    "aggregation_strategy": aggregation_strategy,
-                    "task_count": len(step.get("sub_agents", [])),
-                },
-                config,
-            )
-            results = await subagent_gateway.run_batch(
-                _build_subagent_tasks(step, goal),
-                tenant_id=state["tenant_id"],
-                parent_conversation_id=state["conversation_id"],
-                parent_agent_id=meta.agent_id,
-                shared_context=_build_shared_context(state),
-                event_config=config,
-            )
-            batch_duration_ms = int((perf_counter() - batch_started_at) * 1000)
-            serialized_results = [result.as_dict() for result in results]
-            aggregation_started_at = perf_counter()
-            aggregated = aggregate_subagent_results(
-                serialized_results,
-                strategy=aggregation_strategy,
-                preferred_agent_ids=step.get("preferred_agent_ids", []),
-                min_confidence=float((step.get("aggregation_params") or {}).get("min_confidence", 0.0)),
-                conflict_resolution_template=str(
-                    (step.get("aggregation_params") or {}).get("conflict_resolution_template", "")
-                ),
-            )
-            aggregation_duration_ms = int((perf_counter() - aggregation_started_at) * 1000)
-            aggregation_payload = aggregated.as_dict()
-            metrics_payload = {
-                "task_count": len(serialized_results),
-                "success_count": aggregated.success_count,
-                "error_count": aggregated.error_count,
-                "batch_duration_ms": batch_duration_ms,
-                "aggregation_duration_ms": aggregation_duration_ms,
-                "strategy": aggregation_strategy,
-            }
-            logger_payload = {
+    async def _execute_subagents_step(
+        state: OrchestratorState,
+        step: dict[str, Any],
+        goal: str,
+        plan: list[dict[str, Any]],
+        config: RunnableConfig | None,
+    ) -> dict[str, Any]:
+        """Handle a subagents-executor step: run batch, aggregate, emit metrics."""
+        batch_started_at = perf_counter()
+        aggregation_strategy = _resolve_aggregation_strategy(step.get("aggregation_strategy", "summary"))
+        await _emit_custom_event(
+            "subagent.execution.started",
+            {
                 "conversation_id": state["conversation_id"],
                 "tenant_id": state["tenant_id"],
                 "parent_agent_id": meta.agent_id,
-                **metrics_payload,
-            }
-            metrics_gateway.record_aggregation(logger_payload)
-            await _emit_custom_event(
-                "subagent.aggregation.completed",
-                {
-                    **logger_payload,
-                    "selected_agent_ids": aggregation_payload.get("selected_agent_ids", []),
-                    "conflict_detected": aggregation_payload.get("conflict_detected", False),
-                },
-                config,
-            )
-            await _emit_custom_event("subagent.metrics", logger_payload, config)
-            response = AIMessage(content=aggregated.final_output)
-            logger.info("subagent_aggregation_completed", **logger_payload)
-            executed = {
-                "step_id": step.get("step_id", ""),
-                "goal": goal,
-                "result": aggregated.final_output,
-                "subagent_results": serialized_results,
-                "subagent_aggregation": aggregation_payload,
-                "subagent_metrics": metrics_payload,
-            }
-            return {
-                "messages": [response],
-                "plan": plan,
-                "past_steps": [executed],
-                "subagent_results": serialized_results,
-                "subagent_aggregation": aggregation_payload,
-                "subagent_metrics": metrics_payload,
-                "step_count": state.get("step_count", 0) + 1,
-            }
+                "aggregation_strategy": aggregation_strategy,
+                "task_count": len(step.get("sub_agents", [])),
+            },
+            config,
+        )
+        results = await subagent_gateway.run_batch(
+            _build_subagent_tasks(step, goal),
+            tenant_id=state["tenant_id"],
+            parent_conversation_id=state["conversation_id"],
+            parent_agent_id=meta.agent_id,
+            shared_context=_build_shared_context(state),
+            event_config=config,
+        )
+        batch_duration_ms = int((perf_counter() - batch_started_at) * 1000)
+        serialized_results = [result.as_dict() for result in results]
+        aggregation_started_at = perf_counter()
+        aggregated = aggregate_subagent_results(
+            serialized_results,
+            strategy=aggregation_strategy,
+            preferred_agent_ids=step.get("preferred_agent_ids", []),
+            min_confidence=float((step.get("aggregation_params") or {}).get("min_confidence", 0.0)),
+            conflict_resolution_template=str(
+                (step.get("aggregation_params") or {}).get("conflict_resolution_template", "")
+            ),
+        )
+        aggregation_duration_ms = int((perf_counter() - aggregation_started_at) * 1000)
+        aggregation_payload = aggregated.as_dict()
+        metrics_payload = {
+            "task_count": len(serialized_results),
+            "success_count": aggregated.success_count,
+            "error_count": aggregated.error_count,
+            "batch_duration_ms": batch_duration_ms,
+            "aggregation_duration_ms": aggregation_duration_ms,
+            "strategy": aggregation_strategy,
+        }
+        logger_payload = {
+            "conversation_id": state["conversation_id"],
+            "tenant_id": state["tenant_id"],
+            "parent_agent_id": meta.agent_id,
+            **metrics_payload,
+        }
+        metrics_gateway.record_aggregation(logger_payload)
+        await _emit_custom_event(
+            "subagent.aggregation.completed",
+            {
+                **logger_payload,
+                "selected_agent_ids": aggregation_payload.get("selected_agent_ids", []),
+                "conflict_detected": aggregation_payload.get("conflict_detected", False),
+            },
+            config,
+        )
+        await _emit_custom_event("subagent.metrics", logger_payload, config)
+        response = AIMessage(content=aggregated.final_output)
+        logger.info("subagent_aggregation_completed", **logger_payload)
+        executed = {
+            "step_id": step.get("step_id", ""),
+            "goal": goal,
+            "result": aggregated.final_output,
+            "subagent_results": serialized_results,
+            "subagent_aggregation": aggregation_payload,
+            "subagent_metrics": metrics_payload,
+        }
+        return {
+            "messages": [response],
+            "plan": plan,
+            "past_steps": [executed],
+            "subagent_results": serialized_results,
+            "subagent_aggregation": aggregation_payload,
+            "subagent_metrics": metrics_payload,
+            "step_count": state.get("step_count", 0) + 1,
+        }
+
+    async def _execute_llm_step(
+        state: OrchestratorState,
+        step: dict[str, Any],
+        goal: str,
+        plan: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Handle a single LLM-executor step."""
         llm = llm_gateway.get_chat([], scene="plan_execute_step")
         messages = [
             SystemMessage(content="你是任务执行器。请执行当前步骤并给出结果，简洁准确。"),
@@ -255,6 +272,16 @@ def build_plan_execute_graph(meta: AgentMeta) -> Any:
             "past_steps": [executed],
             "step_count": state.get("step_count", 0) + 1,
         }
+
+    async def executor(state: OrchestratorState, config: RunnableConfig | None = None) -> dict[str, Any]:
+        plan = list(state.get("plan", []))
+        if not plan:
+            return {}
+        step = plan.pop(0)
+        goal = str(step.get("goal", ""))
+        if step.get("executor") == "subagents":
+            return await _execute_subagents_step(state, step, goal, plan, config)
+        return await _execute_llm_step(state, step, goal, plan)
 
     def after_executor(state: OrchestratorState) -> str:
         if state.get("step_count", 0) >= settings.orch_max_steps:

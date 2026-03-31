@@ -376,7 +376,10 @@ async def _emit_custom_event(
 ) -> None:
     try:
         await adispatch_custom_event(name, dict(data), config=config)
-    except RuntimeError:
+    except Exception:
+        # Swallow all dispatch errors (RuntimeError when no handler is registered,
+        # serialization failures, etc.) to avoid breaking the calling chain.
+        logger.debug("custom_event_dispatch_failed", event_name=name)
         return
 
 
