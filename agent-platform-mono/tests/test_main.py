@@ -1,11 +1,12 @@
 """主 API 集成测试。"""
+from collections.abc import AsyncIterator
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.gateway.app import app
 
 
 @pytest.fixture
-async def client():
+async def client() -> AsyncIterator[AsyncClient]:
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
@@ -14,14 +15,14 @@ async def client():
         yield c
 
 
-async def test_health(client: AsyncClient):
+async def test_health(client: AsyncClient) -> None:
     resp = await client.get("/health")
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "ok"
 
 
-async def test_list_agents_includes_all_domains(client: AsyncClient):
+async def test_list_agents_includes_all_domains(client: AsyncClient) -> None:
     from domain_agents.policy.register import register as register_policy
     from domain_agents.claim.register import register as register_claim
     from domain_agents.customer.register import register as register_customer
@@ -36,7 +37,7 @@ async def test_list_agents_includes_all_domains(client: AsyncClient):
     assert "customer-assistant" in ids
 
 
-async def test_run_unknown_agent(client: AsyncClient):
+async def test_run_unknown_agent(client: AsyncClient) -> None:
     resp = await client.post("/agent/run", json={
         "agent_id": "unknown-agent",
         "input": "你好",
@@ -44,7 +45,9 @@ async def test_run_unknown_agent(client: AsyncClient):
     assert resp.status_code == 404
 
 
-async def test_run_agent_returns_conversation_id(client: AsyncClient, monkeypatch):
+async def test_run_agent_returns_conversation_id(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from unittest.mock import AsyncMock
 
     # Create mock objects to replace registry.get and its return value
@@ -59,7 +62,9 @@ async def test_run_agent_returns_conversation_id(client: AsyncClient, monkeypatc
         "factory": lambda self: mock_agent_instance
     })()
     
-    monkeypatch.setattr("app.gateway.routers.agents.agent_gateway.get", lambda x: mock_agent_model)
+    monkeypatch.setattr(
+        "app.gateway.routers.agents.agent_gateway.get", lambda x: mock_agent_model
+    )
     resp = await client.post("/agent/run", json={
         "agent_id": "policy-assistant",
         "input": "查询保单 P2024001",

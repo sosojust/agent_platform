@@ -65,7 +65,7 @@ async def _llm_select(input_text: str, candidates: List[ToolCandidate], top_k: i
     except Exception:
         sys = "你是工具选择器。根据输入选择最相关的工具名称列表，返回严格的 JSON 数组，例如：[\"tool_a\",\"tool_b\"]。最多选择 {} 个。".format(top_k)
         content = "输入: {}\n候选工具: {}\n请只返回 JSON 数组。".format(input_text, candidates_json)
-    llm = llm_gateway.get_chat([], task_type="complex")
+    llm = llm_gateway.get_chat([], scene="tool_select")
     messages = [{"role": "system", "content": sys}, {"role": "user", "content": content}]
     resp = await llm.ainvoke(messages)
     try:

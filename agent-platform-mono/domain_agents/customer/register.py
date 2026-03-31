@@ -19,5 +19,6 @@ def register() -> None:
             tools=customer_tools,
             system_prompt_key="customer_agent_system",
             memory_config=CUSTOMER_MEMORY_CONFIG,
+            llm_scene="customer_faq",
         ),
     ))

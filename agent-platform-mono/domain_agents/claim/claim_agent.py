@@ -19,8 +19,7 @@ import operator
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from langchain_core.messages import BaseMessage, HumanMessage
 
 from core.agent_engine.workflows.base_agent import (
     make_retrieve_memory_node,
@@ -30,7 +29,6 @@ from core.agent_engine.workflows.base_agent import (
 )
 from domain_agents.claim.memory_config import CLAIM_MEMORY_CONFIG
 from domain_agents.claim.tools.claim_tools import claim_tools
-from shared.config.settings import settings
 from shared.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -81,7 +79,7 @@ def build_claim_agent():
     graph = StateGraph(ClaimAgentState)
     graph.add_node("retrieve_memory", make_retrieve_memory_node(cfg))
     graph.add_node("retrieve_rag", make_retrieve_rag_node(cfg))
-    graph.add_node("llm_reason", make_llm_reason_node(claim_tools, "claim_agent_system", cfg))
+    graph.add_node("llm_reason", make_llm_reason_node(claim_tools, "claim_agent_system", cfg, "claim_reason"))
     graph.add_node("doc_verify", doc_verify)   # 理赔专属节点
     graph.add_node("tools", tool_node)
     graph.add_node("update_memory", make_update_memory_node(cfg))

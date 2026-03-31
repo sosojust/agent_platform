@@ -52,7 +52,7 @@ def build_plan_execute_graph(meta: AgentMeta) -> Any:
             return {}
         step = plan.pop(0)
         goal = str(step.get("goal", ""))
-        llm = llm_gateway.get_chat([], task_type="complex")
+        llm = llm_gateway.get_chat([], scene="plan_execute_step")
         messages = [
             SystemMessage(content="你是任务执行器。请执行当前步骤并给出结果，简洁准确。"),
             HumanMessage(content=goal),
@@ -91,7 +91,7 @@ def build_plan_execute_graph(meta: AgentMeta) -> Any:
             f"{item.get('step_id')}: {item.get('result', '')}"
             for item in state.get("past_steps", [])
         )
-        llm = llm_gateway.get_chat([], task_type="simple")
+        llm = llm_gateway.get_chat([], scene="plan_execute_summary")
         messages = [
             SystemMessage(content="你是总结助手。请基于步骤执行结果给出最终答复。"),
             HumanMessage(content=summary),

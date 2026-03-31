@@ -1,4 +1,5 @@
 """客服域 MCP Tools。"""
+from typing import Any
 from mcp.server.fastmcp import FastMCP
 from core.tool_service.client.gateway import internal_gateway
 from shared.logging.logger import get_logger
@@ -8,7 +9,7 @@ mcp = FastMCP("customer-domain")
 
 
 @mcp.tool()
-async def query_customer_info(customer_id: str) -> dict:
+async def query_customer_info(customer_id: str) -> dict[str, Any]:
     """
     查询客户（企业）基本信息。
     当用户询问企业联系方式、行业类型、客户经理是谁时调用。
@@ -32,7 +33,7 @@ async def query_customer_info(customer_id: str) -> dict:
 
 
 @mcp.tool()
-async def search_faq(question: str, top_k: int = 3) -> dict:
+async def search_faq(question: str, top_k: int = 3) -> dict[str, Any]:
     """
     在 FAQ 知识库中检索常见问题答案。
     当用户询问通用的产品介绍、投保流程、理赔流程等常见问题时优先调用。
@@ -55,7 +56,7 @@ async def search_faq(question: str, top_k: int = 3) -> dict:
 
 
 @mcp.tool()
-async def transfer_to_human(reason: str, conversation_id: str) -> dict:
+async def transfer_to_human(reason: str, conversation_id: str) -> dict[str, Any]:
     """
     转接人工客服。
     当用户明确要求转人工，或问题超出 Agent 能力范围时调用。
@@ -76,4 +77,4 @@ async def transfer_to_human(reason: str, conversation_id: str) -> dict:
         return {"error": "转接人工失败，请稍后重试或拨打客服电话"}
 
 
-customer_tools = []
+customer_tools: list[Any] = []

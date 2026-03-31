@@ -73,8 +73,8 @@ agent-platform-mono/
 ### core/ai_core
 
 - `prompt/manager.py`：PromptGateway（统一 Prompt 入口，内部 Provider 链路兜底）
-- `llm/client.py`：LLMGateway（统一 LLM 入口，屏蔽三方 SDK 差异）
-- `routing/router.py`：按任务类型路由模型
+- `llm/client.py`：LLMGateway（统一 LLM 入口，屏蔽三方 SDK 差异，内置同模型多部署高可用路由）
+- `routing/router.py`：业务语义路由（按 scene/task_type 映射模型能力与敏感约束）
 - `embedding/provider.py`：Embedding 抽象与默认实现
 
 ### core/memory_rag
@@ -132,7 +132,7 @@ agent-platform-mono/
 |---|---|
 | 服务 | `APP_ENV` `HOST` `PORT` |
 | 编排 | `ORCH_DEFAULT_MODE` `ORCH_MAX_STEPS` `ORCH_MAX_REPLANS` `ORCH_PLAN_EXECUTE_AGENTS` `ORCH_PLAN_EXECUTE_TENANTS` |
-| 模型 | `LLM_DEFAULT_MODEL` `LLM_STRONG_MODEL` `OPENAI_API_KEY` `ANTHROPIC_API_KEY` |
+| 模型 | `LLM_DEFAULT_MODEL` `LLM_STRONG_MODEL` `LLM_MEDIUM_MODEL` `LLM_NANO_MODEL` `LLM_LOCAL_MODEL` `LLM_ROUTER_DEPLOYMENTS` `LLM_ROUTER_COOLDOWN_SECONDS` `LLM_ROUTER_MAX_ATTEMPTS` `LLM_CACHE_ENABLED` `LLM_CACHE_DEFAULT_TTL_SECONDS` `LLM_CACHE_SCENE_TTL` `LLM_CACHE_TASK_TTL` `LLM_CACHE_MAX_ENTRIES` `OPENAI_API_KEY` `ANTHROPIC_API_KEY` |
 | Prompt/Nacos | `NACOS_SERVER_ADDR` `NACOS_NAMESPACE` `NACOS_GROUP` `NACOS_DATA_ID` |
 | 向量与检索 | `VECTOR_DB_BACKEND` `QDRANT_URL` `EMBEDDING_MODEL` `RERANK_MODEL` `EMBEDDING_DEVICE` |
 | 缓存与状态 | `REDIS_URL` `CHECKPOINT_BACKEND` `CHECKPOINT_TTL` |
@@ -214,6 +214,21 @@ ruff check .
 3. 重启服务后自动注册，无需改 `main.py`
 
 ## 变更记录
+
+- 2026-03-31
+  - `core/ai_core/llm/client.py` 新增 LiteLLM 同模型多部署高可用路由：支持按部署轮询、失败熔断冷却、自动重试与默认部署兜底
+  - `shared/config/settings.py` 新增路由配置项：`LLM_ROUTER_DEPLOYMENTS`、`LLM_ROUTER_COOLDOWN_SECONDS`、`LLM_ROUTER_MAX_ATTEMPTS`
+  - `core/ai_core/llm/client.py` 落地统一缓存策略：按 `scene/task_type` 自动命中 TTL，移除上游显式 cache 开关透传
+  - `shared/config/settings.py` 新增缓存配置项：`LLM_CACHE_ENABLED`、`LLM_CACHE_DEFAULT_TTL_SECONDS`、`LLM_CACHE_SCENE_TTL`、`LLM_CACHE_TASK_TTL`、`LLM_CACHE_MAX_ENTRIES`
+  - `shared/config/nacos.py` 增加 LLM Router/模型/缓存动态配置覆盖能力，支持运行时热更新
+  - 新增测试：`tests/core/ai_core/test_llm_gateway_runtime.py` 与 `tests/core/memory_rag/test_rag_pipeline.py`，覆盖生效模型、fallback、usage 统计与 RAG rewrite 场景路由
+  - `core/memory_rag/memory/compressor.py` 的 `llm_summary` 路径完成 `scene` 优先路由并兼容旧 `task_type` 参数
+  - `docs/ai_core-LiteLLM迁移任务清单.md` 完成“双层 Router 改造”中 LiteLLM 高可用调度项
+  - `pyproject.toml` 增加 `asyncio_default_fixture_loop_scope=function`，消除 `pytest-asyncio` 默认事件循环作用域弃用告警
+  - `core/tool_service/skills/base.py` 补齐 `skill` 装饰器类型签名，减少严格类型检查下的未类型化装饰器告警
+  - `domain_agents/*/tools/*.py` 补齐 `dict[str, Any]` 与工具列表类型注解，修复工具层一批 mypy 报错
+  - `tests/apps/*.py` 与 `tests/test_main.py` 补齐异步测试函数与 fixture 类型注解
+  - `tests/core/memory_rag/test_rag_pipeline.py` 改为字符串路径 monkeypatch，规避模块导出属性类型检查告警
 
 - 2026-03-30
   - 架构范围更新：将 chat message 的“消息过滤/压缩”明确纳入 `core/memory_rag`（memory 层负责定义与实现，agent_engine 负责编排调用）

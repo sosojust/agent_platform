@@ -66,8 +66,8 @@ def make_retrieve_rag_node(cfg: MemoryConfig):
     return retrieve_rag
 
 
-def make_llm_reason_node(tools: list, system_prompt_key: str, cfg: MemoryConfig):
-    llm = llm_gateway.get_chat(tools, task_type="complex")
+def make_llm_reason_node(tools: list, system_prompt_key: str, cfg: MemoryConfig, scene: str):
+    llm = llm_gateway.get_chat(tools, scene=scene)
 
     async def llm_reason(state: BaseAgentState) -> dict:
         if state["step_count"] >= cfg.max_steps:
@@ -112,6 +112,7 @@ def build_base_agent(
     system_prompt_key: str = "agent_system",
     memory_config: MemoryConfig = DEFAULT_MEMORY_CONFIG,
     state_schema: type = BaseAgentState,
+    llm_scene: str = "sensitive_reason",
 ):
     """
     构建基础 Agent Graph。
@@ -137,7 +138,7 @@ def build_base_agent(
     graph = StateGraph(state_schema)
     graph.add_node("retrieve_memory", make_retrieve_memory_node(cfg))
     graph.add_node("retrieve_rag", make_retrieve_rag_node(cfg))
-    graph.add_node("llm_reason", make_llm_reason_node(tools, system_prompt_key, cfg))
+    graph.add_node("llm_reason", make_llm_reason_node(tools, system_prompt_key, cfg, llm_scene))
     graph.add_node("tools", tool_node)
     graph.add_node("update_memory", make_update_memory_node(cfg))
 

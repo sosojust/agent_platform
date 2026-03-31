@@ -115,8 +115,9 @@ class SimpleSummaryCompressor(MessageCompressor):
 
 
 class LLMSummaryCompressor(MessageCompressor):
-    def __init__(self, task_type: str = "simple") -> None:
+    def __init__(self, task_type: str = "simple", scene: str | None = None) -> None:
         self._task_type = str(task_type)
+        self._scene = str(scene or "memory_summary")
         self._fallback = SimpleSummaryCompressor()
 
     @property
@@ -138,7 +139,7 @@ class LLMSummaryCompressor(MessageCompressor):
         recent = [dict(item) for item in request.messages[-keep_recent:]]
         text = self._as_transcript(old)
         try:
-            llm = llm_gateway.get_chat([], task_type=self._task_type)
+            llm = llm_gateway.get_chat([], task_type=self._task_type, scene=self._scene)
             resp = await llm.ainvoke(
                 [
                     {
@@ -200,6 +201,8 @@ def build_compressor(strategy_name: str) -> MessageCompressor:
     name, _, arg = raw.partition(":")
     cls = COMPRESSOR_REGISTRY.get(name) or ShortTermWindowCompressor
     if cls is LLMSummaryCompressor:
-        task_type = str(arg or "simple")
-        return LLMSummaryCompressor(task_type=task_type)
+        value = str(arg or "memory_summary")
+        if value in {"simple", "medium", "complex", "nano", "local"}:
+            return LLMSummaryCompressor(task_type=value)
+        return LLMSummaryCompressor(scene=value)
     return cls()

@@ -1,4 +1,5 @@
 """理赔域 MCP Tools。"""
+from typing import Any
 from mcp.server.fastmcp import FastMCP
 from core.tool_service.client.gateway import internal_gateway
 from shared.logging.logger import get_logger
@@ -8,7 +9,7 @@ mcp = FastMCP("claim-domain")
 
 
 @mcp.tool()
-async def query_claim_status(claim_id: str) -> dict:
+async def query_claim_status(claim_id: str) -> dict[str, Any]:
     """
     查询理赔进度和当前状态。
     当用户询问理赔申请的审核进度、当前环节、是否赔付或被拒绝时调用。
@@ -29,7 +30,7 @@ async def query_claim_status(claim_id: str) -> dict:
 
 
 @mcp.tool()
-async def list_claims_by_policy(policy_id: str) -> dict:
+async def list_claims_by_policy(policy_id: str) -> dict[str, Any]:
     """
     查询某张保单下的所有理赔记录。
     当用户询问某保单历史上发生过哪些理赔、理赔总金额时调用。
@@ -51,4 +52,4 @@ async def list_claims_by_policy(policy_id: str) -> dict:
         return {"error": "查询理赔记录失败"}
 
 
-claim_tools = []
+claim_tools: list[Any] = []

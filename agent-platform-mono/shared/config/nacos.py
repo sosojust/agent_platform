@@ -73,6 +73,28 @@ def _apply_config(settings, config: dict) -> None:
         settings.llm.default_model = config["llm_default_model"]
     if "llm_strong_model" in config:
         settings.llm.strong_model = config["llm_strong_model"]
+    if "llm_medium_model" in config:
+        settings.llm.medium_model = config["llm_medium_model"]
+    if "llm_nano_model" in config:
+        settings.llm.nano_model = config["llm_nano_model"]
+    if "llm_local_model" in config:
+        settings.llm.local_model = config["llm_local_model"]
+    if "llm_router_deployments" in config:
+        settings.llm.router_deployments = json.dumps(config["llm_router_deployments"], ensure_ascii=False)
+    if "llm_router_cooldown_seconds" in config:
+        settings.llm.router_cooldown_seconds = int(config["llm_router_cooldown_seconds"])
+    if "llm_router_max_attempts" in config:
+        settings.llm.router_max_attempts = int(config["llm_router_max_attempts"])
+    if "llm_cache_enabled" in config:
+        settings.llm.cache_enabled = bool(config["llm_cache_enabled"])
+    if "llm_cache_default_ttl_seconds" in config:
+        settings.llm.cache_default_ttl_seconds = int(config["llm_cache_default_ttl_seconds"])
+    if "llm_cache_scene_ttl" in config:
+        settings.llm.cache_scene_ttl = json.dumps(config["llm_cache_scene_ttl"], ensure_ascii=False)
+    if "llm_cache_task_ttl" in config:
+        settings.llm.cache_task_ttl = json.dumps(config["llm_cache_task_ttl"], ensure_ascii=False)
+    if "llm_cache_max_entries" in config:
+        settings.llm.cache_max_entries = int(config["llm_cache_max_entries"])
     # RAG 参数存到一个全局动态配置字典，各域的 pipeline 读取时优先用此处的值
     if "rag_top_k_recall" in config:
         settings._dynamic["rag_top_k_recall"] = config["rag_top_k_recall"]

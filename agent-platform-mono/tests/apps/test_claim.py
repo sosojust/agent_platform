@@ -1,9 +1,8 @@
 """理赔域测试。"""
-import pytest
 from unittest.mock import AsyncMock, patch
 
 
-async def test_query_claim_status_approved():
+async def test_query_claim_status_approved() -> None:
     from domain_agents.claim.tools.claim_tools import query_claim_status
     mock_data = {
         "claimId": "C2024001", "status": "APPROVED",
@@ -17,7 +16,7 @@ async def test_query_claim_status_approved():
     assert result["reject_reason"] is None
 
 
-async def test_query_claim_status_rejected():
+async def test_query_claim_status_rejected() -> None:
     from domain_agents.claim.tools.claim_tools import query_claim_status
     mock_data = {
         "claimId": "C2024002", "status": "REJECTED",
@@ -31,7 +30,7 @@ async def test_query_claim_status_rejected():
     assert "诊断证明" in result["reject_reason"]
 
 
-async def test_claim_memory_config():
+async def test_claim_memory_config() -> None:
     """验证理赔域的 memory config 参数符合预期"""
     from domain_agents.claim.memory_config import CLAIM_MEMORY_CONFIG
     assert CLAIM_MEMORY_CONFIG.long_term_enabled is True

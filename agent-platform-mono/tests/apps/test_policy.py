@@ -1,9 +1,8 @@
 """保单域测试。"""
-import pytest
 from unittest.mock import AsyncMock, patch
 
 
-async def test_query_policy_basic_success():
+async def test_query_policy_basic_success() -> None:
     from domain_agents.policy.tools.policy_tools import query_policy_basic
     mock_data = {
         "policyId": "P2024001", "status": "ACTIVE",
@@ -18,7 +17,7 @@ async def test_query_policy_basic_success():
     assert "error" not in result
 
 
-async def test_query_policy_basic_not_found():
+async def test_query_policy_basic_not_found() -> None:
     from domain_agents.policy.tools.policy_tools import query_policy_basic
     with patch("domain_agents.policy.tools.policy_tools.internal_gateway.get",
                new=AsyncMock(side_effect=Exception("404"))):
@@ -26,7 +25,7 @@ async def test_query_policy_basic_not_found():
     assert "error" in result
 
 
-async def test_policy_register():
+async def test_policy_register() -> None:
     """验证保单域注册后 agent_id 存在于注册表"""
     from core.agent_engine.agents.registry import agent_gateway
     from domain_agents.policy.register import register

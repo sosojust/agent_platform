@@ -23,5 +23,6 @@ def register() -> None:
             tools=policy_tools,
             system_prompt_key="policy_agent_system",
             memory_config=POLICY_MEMORY_CONFIG,
+            llm_scene="policy_query",
         ),
     ))
