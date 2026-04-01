@@ -214,88 +214,51 @@ def parse_user_time(time_str: str, timezone: str) -> int:
 ## Task 1.3 — 数据分层模型
 
 **优先级**: P0  
-**预计工时**: 2 天  
+**预计工时**: 待定  
 **依赖**: 无  
-**被依赖**: 1.4, 1.5, 1.6, 1.7
+**被依赖**: 1.4, 1.5, 1.6, 1.7  
+**状态**: ⏸️ 已暂停（待架构讨论）
 
-### 目标
+### 暂停原因
 
-定义四层数据模型（Platform / Channel / Tenant / User），建立 DataType → DataScope 映射，规范 collection 命名。
+在实现过程中发现数据建模需要更深入的架构讨论：
 
-### 实现清单
+1. **平台 vs 业务边界**：如何在平台层定义数据分层，同时不限制业务层的建模自由度
+2. **向量库建模规范**：需要先梳理清楚整体的数据模型体系
+3. **扩展性设计**：如何支持不同业务场景（保险、HR、客服等）的数据类型定义
 
-#### 1. `core/memory_rag/types.py`
+### 待讨论的问题
 
-```python
-class DataScope(StrEnum):
-    PLATFORM = "platform"
-    CHANNEL = "channel"
-    TENANT = "tenant"
-    USER = "user"
+1. **Scope 定义**：
+   - Platform/Channel/Tenant/User 四层分类是否合理？
+   - 是否需要更灵活的分层机制？
 
-class DataType(StrEnum):
-    # Platform 级
-    PRODUCT_TEMPLATE = "product_template"
-    PLATFORM_FAQ = "platform_faq"
-    PLATFORM_KNOWLEDGE = "platform_knowledge"
-    # Channel 级
-    PRODUCT_CATALOG = "product_catalog"
-    INSURER_INFO = "insurer_info"
-    # Tenant 级
-    TENANT_KNOWLEDGE = "tenant_knowledge"
-    TENANT_BUSINESS = "tenant_business"
-    # User 级
-    USER_PROFILE = "user_profile"
-    USER_PREFERENCE = "user_preference"
-    USER_MEMORY = "user_memory"
-    USER_DOCUMENT = "user_document"
+2. **数据类型管理**：
+   - 平台层应该定义哪些约束？
+   - 业务层如何自由扩展数据类型？
+   - 如何避免类型冲突？
 
-DATA_TYPE_SCOPE: dict[DataType, DataScope] = {
-    DataType.PRODUCT_TEMPLATE: DataScope.PLATFORM,
-    DataType.PLATFORM_FAQ: DataScope.PLATFORM,
-    # ... 完整映射
-}
+3. **Collection 命名**：
+   - 命名规范是否足够灵活？
+   - 如何支持动态创建的业务场景？
 
-@dataclass
-class ChunkMetadata:
-    scope: DataScope
-    data_type: DataType
-    platform_id: str
-    channel_id: str
-    tenant_id: str
-    user_id: str
-    source_id: str
-    source_name: str
-    chunk_index: int
-    chunk_total: int
-    language: str
-    tags: list[str]
-    content_hash: str
-    created_at: int
-    updated_at: int
-    expires_at: int
-    text: str
-    importance: float = 1.0
-```
+4. **元数据结构**：
+   - ChunkMetadata 应该包含哪些字段？
+   - 如何平衡通用性和业务特定需求？
 
-#### 2. `core/memory_rag/collection.py`
+### 后续计划
 
-```python
-def collection_name(scope: DataScope, data_type: DataType, scope_id: str) -> str:
-    """
-    platform__product_template
-    channel__{channel_id}__product_catalog
-    tenant__{tenant_id}__tenant_knowledge
-    user__{tenant_id}__{user_id}__user_memory
-    """
-```
+1. 梳理整体数据模型体系
+2. 讨论向量库建模规范
+3. 确定平台层和业务层的职责边界
+4. 重新设计并实现 Task 1.3
 
-### 验收标准
+### 对其他任务的影响
 
-- [ ] 所有 DataType 都在 `DATA_TYPE_SCOPE` 中有映射
-- [ ] `collection_name(DataScope.PLATFORM, DataType.PRODUCT_TEMPLATE, "")` → `"platform__product_template"`
-- [ ] `collection_name(DataScope.USER, DataType.USER_MEMORY, "t1__u1")` → `"user__t1__u1__user_memory"`
-- [ ] `ChunkMetadata` 所有字段类型正确
+- Task 1.4（向量库适配层）：可以先实现基础的 CRUD 接口，暂不依赖具体的数据模型
+- Task 1.5（IngestGateway）：暂缓，等待数据模型确定
+- Task 1.6（检索层）：暂缓，等待数据模型确定
+- Task 1.7（Memory 层）：暂缓，等待数据模型确定
 
 ---
 
