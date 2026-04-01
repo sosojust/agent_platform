@@ -1,0 +1,17 @@
+{
+  "error.budget_exceeded": "Current session token usage has exceeded the limit",
+  "error.provider_timeout": "Model response timeout, please try again later",
+  "error.provider_rate_limited": "Too many requests, please try again later",
+  "error.provider_unknown": "Model service error, please try again later",
+  "error.provider_context_length": "Input content is too long, please shorten it",
+  "error.tool_not_found": "Tool {name} not found",
+  "error.tool_execution_failed": "Tool {name} execution failed: {reason}",
+  "memory.related": "Related Memories",
+  "memory.recent": "Recent Conversation",
+  "retrieval.platform": "Platform Knowledge",
+  "retrieval.channel": "Channel Information",
+  "retrieval.tenant": "Enterprise Knowledge Base",
+  "retrieval.user": "User Information",
+  "tool.context_header": "Tool Execution Results",
+  "instruction.respond_in_locale": "Please respond in {language}."
+}

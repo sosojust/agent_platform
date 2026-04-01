@@ -1,0 +1,17 @@
+{
+  "error.budget_exceeded": "当前会话 Token 用量已超限",
+  "error.provider_timeout": "模型响应超时，请稍后重试",
+  "error.provider_rate_limited": "请求过于频繁，请稍后重试",
+  "error.provider_unknown": "模型服务异常，请稍后重试",
+  "error.provider_context_length": "输入内容过长，请精简后重试",
+  "error.tool_not_found": "工具 {name} 不存在",
+  "error.tool_execution_failed": "工具 {name} 执行失败：{reason}",
+  "memory.related": "相关记忆",
+  "memory.recent": "近期对话",
+  "retrieval.platform": "平台知识",
+  "retrieval.channel": "渠道信息",
+  "retrieval.tenant": "企业知识库",
+  "retrieval.user": "用户信息",
+  "tool.context_header": "工具执行结果",
+  "instruction.respond_in_locale": "请用 {language} 回答。"
+}

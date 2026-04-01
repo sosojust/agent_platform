@@ -9,6 +9,12 @@ class AgentRunRequest(BaseModel):
     input: str = Field(description="用户输入")
     conversation_id: Optional[str] = Field(default=None, description="对话 ID（跨端/跨渠道稳定标识），不传则自动生成")
     metadata: dict[str, Any] = Field(default_factory=dict)
+    
+    # 新增可选字段 (Task 1.1) - 不传则从 middleware context 读取
+    user_id: Optional[str] = Field(default=None, description="用户唯一标识")
+    channel_id: Optional[str] = Field(default=None, description="渠道标识")
+    locale: Optional[str] = Field(default=None, description="语言区域，如 zh-CN / en-US / ja-JP")
+    timezone: Optional[str] = Field(default=None, description="时区，如 Asia/Shanghai / UTC")
 
 
 class AgentRunResponse(BaseModel):
