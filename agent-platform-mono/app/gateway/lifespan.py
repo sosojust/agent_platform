@@ -5,11 +5,11 @@ from fastapi import FastAPI
 from qdrant_client import QdrantClient
 
 from app.gateway.readiness import ReadinessRegistry
-from core.tool_service.client.gateway import internal_gateway
 from core.tool_service.registry import tool_gateway
 from shared.config.nacos import init_nacos_config
 from shared.config.settings import settings
 from shared.logging.logger import get_logger
+from shared.internal_http.client import get_internal_api_client
 
 logger = get_logger(__name__)
 readiness = ReadinessRegistry()
@@ -157,5 +157,5 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
     logger.info("agent_platform_started")
     yield
-    await internal_gateway.close()
+    await get_internal_api_client().close()
     logger.info("agent_platform_stopped")

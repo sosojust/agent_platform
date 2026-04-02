@@ -1,7 +1,7 @@
 """理赔域 MCP Tools。"""
 from typing import Any
 from mcp.server.fastmcp import FastMCP
-from core.tool_service.client.gateway import internal_gateway
+from shared.internal_http.client import get_internal_api_client
 from shared.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -15,7 +15,8 @@ async def query_claim_status(claim_id: str) -> dict[str, Any]:
     当用户询问理赔申请的审核进度、当前环节、是否赔付或被拒绝时调用。
     """
     try:
-        data = await internal_gateway.get(f"/claim-service/api/v1/claims/{claim_id}/status")
+        client = get_internal_api_client()
+        data = await client.get(f"/claim-service/api/v1/claims/{claim_id}/status")
         return {
             "claim_id": data["claimId"],
             "status": data["status"],
@@ -36,7 +37,8 @@ async def list_claims_by_policy(policy_id: str) -> dict[str, Any]:
     当用户询问某保单历史上发生过哪些理赔、理赔总金额时调用。
     """
     try:
-        data = await internal_gateway.get(
+        client = get_internal_api_client()
+        data = await client.get(
             "/claim-service/api/v1/claims", params={"policyId": policy_id}
         )
         return {

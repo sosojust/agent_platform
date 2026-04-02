@@ -9,8 +9,8 @@ async def test_query_policy_basic_success() -> None:
         "effectiveDate": "2024-01-01", "expiryDate": "2025-01-01",
         "insuredAmount": 500000, "policyholder": {"name": "测试科技有限公司"},
     }
-    with patch("domain_agents.policy.tools.policy_tools.internal_gateway.get",
-               new=AsyncMock(return_value=mock_data)):
+    with patch("domain_agents.policy.tools.policy_tools.get_internal_api_client") as mock_client:
+        mock_client.return_value.get = AsyncMock(return_value=mock_data)
         result = await query_policy_basic("P2024001")
     assert result["status"] == "ACTIVE"
     assert result["policyholder"] == "测试科技有限公司"
@@ -19,8 +19,8 @@ async def test_query_policy_basic_success() -> None:
 
 async def test_query_policy_basic_not_found() -> None:
     from domain_agents.policy.tools.policy_tools import query_policy_basic
-    with patch("domain_agents.policy.tools.policy_tools.internal_gateway.get",
-               new=AsyncMock(side_effect=Exception("404"))):
+    with patch("domain_agents.policy.tools.policy_tools.get_internal_api_client") as mock_client:
+        mock_client.return_value.get = AsyncMock(side_effect=Exception("404"))
         result = await query_policy_basic("P9999999")
     assert "error" in result
 

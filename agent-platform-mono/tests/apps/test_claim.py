@@ -9,8 +9,8 @@ async def test_query_claim_status_approved() -> None:
         "currentStep": "待赔付", "submitDate": "2024-06-01",
         "expectedCompleteDate": "2024-06-10", "rejectReason": None,
     }
-    with patch("domain_agents.claim.tools.claim_tools.internal_gateway.get",
-               new=AsyncMock(return_value=mock_data)):
+    with patch("domain_agents.claim.tools.claim_tools.get_internal_api_client") as mock_client:
+        mock_client.return_value.get = AsyncMock(return_value=mock_data)
         result = await query_claim_status("C2024001")
     assert result["status"] == "APPROVED"
     assert result["reject_reason"] is None
@@ -23,8 +23,8 @@ async def test_query_claim_status_rejected() -> None:
         "currentStep": "审核完成", "submitDate": "2024-06-01",
         "expectedCompleteDate": None, "rejectReason": "材料不齐全，缺少诊断证明",
     }
-    with patch("domain_agents.claim.tools.claim_tools.internal_gateway.get",
-               new=AsyncMock(return_value=mock_data)):
+    with patch("domain_agents.claim.tools.claim_tools.get_internal_api_client") as mock_client:
+        mock_client.return_value.get = AsyncMock(return_value=mock_data)
         result = await query_claim_status("C2024002")
     assert result["status"] == "REJECTED"
     assert "诊断证明" in result["reject_reason"]

@@ -1,7 +1,7 @@
 """保单域 MCP Tools。"""
 from typing import Any
 from mcp.server.fastmcp import FastMCP
-from core.tool_service.client.gateway import internal_gateway
+from shared.internal_http.client import get_internal_api_client
 from shared.logging.logger import get_logger
 from core.tool_service.skills.base import skill
 from core.tool_service.registry import tool_gateway
@@ -17,7 +17,8 @@ async def query_policy_basic(policy_id: str) -> dict[str, Any]:
     当用户询问保单状态、生效日期、到期日期、承保金额、投保人或被保险人时调用。
     """
     try:
-        data = await internal_gateway.get(f"/policy-service/api/v1/policies/{policy_id}/basic")
+        client = get_internal_api_client()
+        data = await client.get(f"/policy-service/api/v1/policies/{policy_id}/basic")
         return {
             "policy_id": data["policyId"],
             "status": data["status"],
@@ -41,7 +42,8 @@ async def list_policies_by_company(
     status 可选：ACTIVE（有效）、EXPIRED（到期）、ALL（全部）。
     """
     try:
-        data = await internal_gateway.get(
+        client = get_internal_api_client()
+        data = await client.get(
             f"/policy-service/api/v1/companies/{company_id}/policies",
             params={"status": status, "page": page, "pageSize": page_size},
         )
