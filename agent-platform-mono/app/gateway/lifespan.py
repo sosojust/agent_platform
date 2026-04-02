@@ -135,19 +135,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     register_customer()
     domain_count = 3
 
-    try:
-        from core.tool_service.mcp.external_client import ExternalMCPProvider
-        from core.tool_service.mcp.service_client import MCPServiceProvider
-
-        await tool_gateway.register_mcp_provider("mcp", MCPServiceProvider())
-        for idx, endpoint in enumerate(settings.external_mcp_endpoints or []):
-            await tool_gateway.register_mcp_provider(
-                f"ext{idx + 1}",
-                ExternalMCPProvider(endpoint, token=(settings.external_mcp_token or None)),
-            )
-        logger.info("tools_registered", count=len(tool_gateway.list_tools()))
-    except Exception as e:
-        logger.error("tool_service_init_failed", error=str(e))
+    # 工具已通过 domain_agents 中的 @mcp.tool() 和 @skill 装饰器自动注册
+    # 不需要额外的 MCP 客户端注册
+    logger.info("tools_registered", count=len(tool_gateway.list_tools()))
 
     if domain_count > 0:
         readiness.mark_ready("domain_agents")

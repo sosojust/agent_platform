@@ -49,6 +49,31 @@
 
 ---
 
+### 3. MCP Client 重命名和改进 (2026-04-02)
+
+**文档**: [mcp_client_rename.md](./mcp_client_rename.md)
+
+**问题**: MCP 客户端命名不够明确，内部客户端缺少完整的上下文透传。
+
+**解决方案**:
+- 重命名 `service_client.py` → `internal_client.py`
+- 重命名类 `MCPServiceProvider` → `InternalMCPClient`
+- 重命名类 `ExternalMCPProvider` → `ExternalMCPClient`
+- 改进 `InternalMCPClient` 透传完整上下文信息
+
+**影响范围**:
+- 删除 1 个文件（`service_client.py`）
+- 新增 1 个文件（`internal_client.py`）
+- 修改 3 个文件（`external_client.py`, `__init__.py`, `lifespan.py`）
+
+**架构改进**:
+- 命名对称：`InternalMCPClient` vs `ExternalMCPClient`
+- 上下文完整：内部客户端透传所有上下文字段
+- 职责清晰：内部服务 vs 外部服务器
+- 与 `shared/internal_http` 保持一致的上下文透传策略
+
+---
+
 ## 重构原则
 
 1. **单一职责**: 每个模块只做一件事
@@ -71,3 +96,79 @@
 ## 待重构项
 
 查看 [docs/tasks/batch1_review.md](../tasks/batch1_review.md) 了解待处理的架构问题。
+
+### 4. 工具组织架构改进 (2026-04-02)
+
+**文档**: [tool_organization.md](./tool_organization.md)
+
+**问题**: 
+1. domain_agents 中没有 skills 目录，无法存放简单的函数式工具
+2. 缺少公共工具的统一存放位置，导致工具重复实现
+
+**解决方案**:
+- 在每个 domain_agents 下添加 `skills/` 目录
+- 创建顶层 `common_tools/` 目录存放公共工具
+- 明确工具分类规则
+
+**影响范围**:
+- 新增 3 个 domain skills 目录
+- 新增 1 个 common_tools 目录（包含 mcp/ 和 skills/）
+- 新增示例工具和文档
+
+**架构改进**:
+- 工具分类清晰：MCP vs Skill，领域 vs 公共
+- 易于复用：公共工具统一管理
+- 避免重复：跨领域工具只实现一次
+- 结构完整：每个层次都有明确的工具存放位置
+
+---
+
+### 5. 工具位置和注册机制澄清 (2026-04-02)
+
+**文档**: [tool_location_and_registration.md](./tool_location_and_registration.md)
+
+**问题**:
+1. common_tools 最初放在顶层，但应该放在 core/tool_service/ 下更合适
+2. 文档中提到需要"注册"工具，但实际上工具通过装饰器自动注册
+
+**解决方案**:
+- 将 `common_tools/` 移动到 `core/tool_service/common_tools/`
+- 澄清工具注册机制：装饰器自动注册，导入即可用
+
+**影响范围**:
+- 移动 1 个目录
+- 更新所有文档中的路径引用
+- 澄清注册机制说明
+
+**架构改进**:
+- 目录结构更清晰：工具相关模块统一在 tool_service 下
+- 职责划分明确：基础设施 vs 工具实现
+- 开发体验更好：装饰器自动注册，无需手动调用
+
+---
+
+### 6. 删除未使用的 MCP 客户端 (2026-04-02)
+
+**文档**: [remove_unused_mcp_clients.md](./remove_unused_mcp_clients.md)
+
+**问题**:
+- `InternalMCPClient` 和 `ExternalMCPClient` 在当前架构中完全未使用
+- 所有工具都直接在 domain_agents 中定义，通过装饰器自动注册
+- 不存在独立的 mcp-service，也没有接入外部 MCP 服务器
+
+**解决方案**:
+- 删除 `internal_client.py` 和 `external_client.py`
+- 保留 `base.py` 作为接口定义，供未来扩展
+- 更新 lifespan.py，删除未使用的注册代码
+
+**影响范围**:
+- 删除 2 个文件（约 200+ 行代码）
+- 修改 3 个文件（`__init__.py`, `base.py`, `lifespan.py`）
+
+**架构改进**:
+- 代码更简洁：删除未使用的代码
+- 架构更清晰：工具直接定义，装饰器自动注册
+- 符合 YAGNI 原则：不实现当前用不到的功能
+- 维护成本更低：减少需要维护和测试的代码
+
+---
