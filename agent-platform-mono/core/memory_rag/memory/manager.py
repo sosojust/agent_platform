@@ -9,7 +9,7 @@ from core.memory_rag.memory.compressor import build_compressor, build_tokenizer
 from core.memory_rag.memory.provider_protocols import CompressionRequest, MessageCompressor
 from core.memory_rag.memory.config import MemoryConfig
 from core.memory_rag.memory.filters import DuplicateRecentFilter, NoiseFilter, normalize_content
-from core.memory_rag.embedding.gateway import embedding_gateway
+from core.ai_core.embedding.provider import get_embedding_provider
 from core.memory_rag.vector.store import vector_gateway
 
 logger = get_logger(__name__)
@@ -161,7 +161,7 @@ class MemoryGateway:
         use_top_k = top_k or config.long_term_retrieve_top_k
         if use_top_k <= 0:
             return []
-        query_vector = embedding_gateway.embed([query])[0]
+        query_vector = get_embedding_provider().embed([query])[0]
         collection = self._memory_collection_name(tenant_id)
         filters = self._build_long_term_filter(tenant_id=tenant_id, memory_types=memory_types)
         try:

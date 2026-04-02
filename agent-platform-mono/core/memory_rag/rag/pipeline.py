@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import List
 from core.ai_core.llm.client import llm_gateway
-from core.memory_rag.embedding.gateway import embedding_gateway
+from core.ai_core.embedding.provider import get_embedding_provider
 from core.memory_rag.vector.store import vector_gateway
 from core.memory_rag.rerank.service import rerank_gateway
 
@@ -18,7 +18,7 @@ class RagGateway:
     ) -> List[str]:
         final_query = await self._rewrite_query(query, collection_type, rewrite)
         collection = f"{tenant_id}_{collection_type}"
-        qvec = embedding_gateway.embed([final_query])[0]
+        qvec = get_embedding_provider().embed([final_query])[0]
         f = {"AND": [{"EQ": ["tenant_id", tenant_id]}]}
         hits = vector_gateway.search(collection, qvec, top_k_recall, filter_ast=f)
         docs = [h["metadata"].get("text", "") for h in hits]

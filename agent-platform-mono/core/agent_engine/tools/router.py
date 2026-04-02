@@ -4,7 +4,7 @@ import json
 import math
 import re
 
-from core.memory_rag.embedding.gateway import embedding_gateway
+from core.ai_core.embedding.provider import get_embedding_provider
 from core.ai_core.llm.client import llm_gateway
 from core.ai_core.prompt.manager import prompt_gateway
 
@@ -45,7 +45,7 @@ def _keyword_scores(input_text: str, candidates: List[ToolCandidate]) -> Dict[st
 
 def _vector_scores(input_text: str, candidates: List[ToolCandidate]) -> Dict[str, float]:
     texts = [input_text] + [c.description or c.name for c in candidates]
-    vecs = embedding_gateway.embed(texts)
+    vecs = get_embedding_provider().embed(texts)
     q = vecs[0]
     scores: Dict[str, float] = {}
     for i, c in enumerate(candidates, start=1):
