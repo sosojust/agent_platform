@@ -1,6 +1,6 @@
 """公共格式化 Skills"""
 from typing import Any
-from core.tool_service.skills.base import skill
+from core.tool_service.skill.base import skill
 import re
 
 

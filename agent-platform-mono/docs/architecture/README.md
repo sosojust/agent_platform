@@ -80,7 +80,7 @@
 
 **实现方式**:
 - HTTP 调用：使用 `shared/internal_http/client.py`
-- MCP 调用：使用 `core/tool_service/mcp/internal_client.py`
+- MCP 调用：使用 `core/tool_service/internal_mcp/client.py`
 
 ### 5. 配置管理
 

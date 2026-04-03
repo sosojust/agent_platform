@@ -1,6 +1,6 @@
 """保单域 Skill 示例"""
 from typing import Any
-from core.tool_service.skills.base import skill
+from core.tool_service.skill.base import skill
 
 
 @skill(name="format_policy_id")

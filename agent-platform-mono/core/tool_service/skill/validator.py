@@ -36,7 +36,7 @@ class SkillValidator(BaseValidator):
             errors.append("Skill 必须指定 available_tools")
         else:
             # 验证工具是否存在
-            all_tool_names = {t["name"] for t in self.tool_gateway.list_tools()}
+            all_tool_names = {t["name"] for t in await self.tool_gateway.list_tools()}
             for tool_name in metadata.available_tools:
                 if tool_name not in all_tool_names:
                     errors.append(f"Skill 引用的工具不存在: {tool_name}")

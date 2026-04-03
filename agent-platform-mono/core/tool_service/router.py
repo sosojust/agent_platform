@@ -63,7 +63,7 @@ class ToolRouter:
             匹配的工具列表
         """
         # 获取所有可用工具
-        all_tools = self.tool_gateway.list_tools(context=context)
+        all_tools = await self.tool_gateway.list_tools(context=context)
         
         if strategy == MatchStrategy.KEYWORD:
             return self._match_by_keyword(query, all_tools, top_k)

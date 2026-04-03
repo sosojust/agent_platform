@@ -14,6 +14,7 @@ from shared.logging.logger import get_logger
 from .types import ToolMetadata, ToolContext
 from .base.adapter import ToolAdapter
 from .base.permissions import BasePermissionChecker
+from .function.adapter import FunctionAdapter
 
 logger = get_logger(__name__)
 
@@ -43,7 +44,38 @@ class ToolGateway:
         """
         self._tools: Dict[str, ToolEntry] = {}
         self._adapters: List[ToolAdapter] = []
+        self._decorated_skill_adapter: FunctionAdapter | None = None
         self.permission_checker = permission_checker or BasePermissionChecker()
+
+    def register_skill(
+        self,
+        name: str,
+        func: Any,
+        input_schema: dict[str, Any] | None = None,
+        output_schema: dict[str, Any] | None = None,
+        provider: str = "skill",
+    ) -> None:
+        if self._decorated_skill_adapter is None:
+            self._decorated_skill_adapter = FunctionAdapter(domain=provider)
+            self.register_adapter(self._decorated_skill_adapter)
+
+        metadata = self._decorated_skill_adapter.register_function(
+            func=func,
+            name=name,
+            category=provider,
+        )
+        if input_schema is not None:
+            metadata.input_schema = input_schema
+        if output_schema is not None:
+            metadata.output_schema = output_schema
+        if "skill" not in metadata.tags:
+            metadata.tags.append("skill")
+
+        self._tools[metadata.name] = ToolEntry(
+            metadata=metadata,
+            adapter=self._decorated_skill_adapter,
+        )
+        logger.info("decorated_skill_registered", name=metadata.name, provider=provider)
     
     def register_adapter(self, adapter: ToolAdapter):
         """注册一个 Adapter"""
@@ -79,6 +111,18 @@ class ToolGateway:
             adapter_type=adapter.get_adapter_type(),
             count=len(tools),
         )
+    
+    def get_tool_entry(self, tool_name: str) -> ToolEntry | None:
+        """
+        获取工具条目（同步方法）。
+        
+        Args:
+            tool_name: 工具名称
+        
+        Returns:
+            工具条目，如果不存在返回 None
+        """
+        return self._tools.get(tool_name)
     
     async def list_tools(
         self,

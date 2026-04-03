@@ -39,7 +39,7 @@ class SkillExecutor:
         # 2. 获取可用工具（从 tool_gateway）
         tool_functions = []
         for tool_name in skill_def.available_tools:
-            tool_entry = self.tool_gateway._tools.get(tool_name)
+            tool_entry = self.tool_gateway.get_tool_entry(tool_name)
             if tool_entry:
                 tool_functions.append(self._wrap_tool_for_agent(tool_entry, context))
         

@@ -32,7 +32,7 @@ class FunctionAdapter(ToolAdapter):
         name: str | None = None,
         description: str | None = None,
         category: str | None = None,
-    ):
+    ) -> FunctionToolMetadata:
         """注册一个 Python 函数作为工具"""
         tool_name = name or func.__name__
         tool_desc = description or (func.__doc__ or "").strip()
@@ -58,6 +58,7 @@ class FunctionAdapter(ToolAdapter):
         )
         
         self._metadata_cache[tool_name] = metadata
+        return metadata
     
     async def load_tools(self) -> List[FunctionToolMetadata]:
         """加载所有已注册的函数工具"""

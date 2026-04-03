@@ -20,7 +20,7 @@ from .types import (
     FunctionToolMetadata,
     ToolContext,
 )
-from .registry import ToolGateway, tool_gateway
+from .registry import ToolGateway, tool_gateway, ToolEntry
 from .router import ToolRouter, MatchStrategy, init_tool_router
 from .base import ToolAdapter, BaseValidator, BasePermissionChecker
 
@@ -44,6 +44,7 @@ __all__ = [
     # Core
     "ToolGateway",
     "tool_gateway",
+    "ToolEntry",
     "ToolRouter",
     "MatchStrategy",
     "init_tool_router",

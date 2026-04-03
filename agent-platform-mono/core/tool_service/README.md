@@ -261,30 +261,90 @@ matched_tools = await router.match_tools(
 
 ## 下一步工作
 
-1. **实现完整的 ToolRouter**：
+1. **处理遗留代码**：
+   - 删除或修复旧的 `@skill` 装饰器（`skill/base.py`）
+   - 删除或迁移 `common_tools/skills/format_skills.py`
+   - 详见 `LEGACY_CODE_ISSUE.md`
+
+2. **实现完整的 ToolRouter**：
    - 向量相似度匹配
    - LLM 推理匹配
    - 混合策略匹配
 
-2. **完善 Skill 执行边界**：
+3. **完善 Skill 执行边界**：
    - 实现五大边界约束（参考 `skill_execution_boundaries.md`）
    - 添加 max_steps、timeout 限制
    - 实现独立计量和观测
 
-3. **修复已知问题**：
+4. **修复已知问题**：
    - health_check 实现（参考 `tool_service_architecture_fixes.md`）
    - External MCP 工具缓存（使用 Redis）
    - SkillDefinition 持久化存储
 
-4. **集成到 Gateway**：
+5. **集成到 Gateway**：
    - 在 `app/gateway/lifespan.py` 中注册所有工具
    - 配置权限检查器
    - 添加监控和告警
 
-5. **测试**：
+6. **测试**：
    - 单元测试（每个 Adapter）
    - 集成测试（完整流程）
    - 性能测试（权限检查、工具调用）
+
+## 已知问题
+
+### 遗留代码问题（严重）
+
+⚠️ **旧的 `@skill` 装饰器与新架构不兼容**
+
+- 位置：`core/tool_service/skill/base.py`、`core/tool_service/common_tools/skills/format_skills.py`
+- 问题：装饰器调用不存在的 `tool_gateway.register_skill()` 方法
+- 影响：一旦导入会立即崩溃
+- 状态：目前没有代码导入，但是隐患
+- 解决方案：删除旧代码或迁移到新架构
+
+详见 `LEGACY_CODE_ISSUE.md`。
+
+## Bug 修复记录
+
+### Bug #1: ToolRouter.match_tools 缺少 await
+- **问题**：调用 `self.tool_gateway.list_tools()` 时缺少 `await`
+- **影响**：返回 coroutine 对象而不是列表，后续逻辑失效
+- **修复**：添加 `await` 关键字
+- **文件**：`core/tool_service/router.py` (第 66 行)
+
+### Bug #2: SkillValidator._validate_specific 缺少 await
+- **问题**：调用 `self.tool_gateway.list_tools()` 时缺少 `await`
+- **影响**：无法正确验证 Skill 引用的工具是否存在
+- **修复**：添加 `await` 关键字
+- **文件**：`core/tool_service/skill/validator.py` (第 39 行)
+
+### Bug #3: SkillExecutor 访问 ToolGateway 私有属性
+- **问题**：直接访问 `tool_gateway._tools` 私有属性
+- **影响**：违反封装原则，代码耦合度高
+- **修复**：在 ToolGateway 中添加 `get_tool_entry()` 公共方法
+- **文件**：
+  - `core/tool_service/registry.py` (添加 `get_tool_entry` 方法)
+  - `core/tool_service/skill/executor.py` (第 42 行)
+
+### Bug #4: HTTP 路由调用 ToolGateway 接口不匹配
+- **问题**：
+  - `invoke()` 缺少 `context` 参数
+  - `list_tools()` 缺少 `await`
+- **影响**：HTTP 入口调用路径完全断开，所有通过 HTTP 调用工具的请求都会失败
+- **修复**：
+  - 从 HTTP 请求头构建 `ToolContext`
+  - 添加 `await` 关键字
+  - 正确处理 `PermissionError`
+- **文件**：`app/gateway/routers/tools.py` (第 24 行和第 29 行)
+
+### Bug #5: policy_tools.py 调用 invoke 缺少 context
+- **问题**：调用 `tool_gateway.invoke()` 时缺少 `context` 参数
+- **影响**：运行时会抛出 `TypeError`
+- **状态**：该文件还使用了旧的 `@skill` 装饰器，建议删除或重构
+- **文件**：`domain_agents/policy/tools/policy_tools.py` (第 77 行)
+
+详细信息请参考 `BUGFIX.md` 和 `CODE_REVIEW_FIXES.md`。
 
 ## 参考文档
 

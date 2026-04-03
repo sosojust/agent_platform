@@ -253,7 +253,7 @@ ruff check .
   - `core/memory_rag/memory/compressor.py` 的 `llm_summary` 路径完成 `scene` 优先路由并兼容旧 `task_type` 参数
   - `docs/ai_core-LiteLLM迁移任务清单.md` 完成“双层 Router 改造”中 LiteLLM 高可用调度项
   - `pyproject.toml` 增加 `asyncio_default_fixture_loop_scope=function`，消除 `pytest-asyncio` 默认事件循环作用域弃用告警
-  - `core/tool_service/skills/base.py` 补齐 `skill` 装饰器类型签名，减少严格类型检查下的未类型化装饰器告警
+  - `core/tool_service/skill/base.py` 补齐 `skill` 装饰器类型签名，减少严格类型检查下的未类型化装饰器告警
   - `domain_agents/*/tools/*.py` 补齐 `dict[str, Any]` 与工具列表类型注解，修复工具层一批 mypy 报错
   - `tests/apps/*.py` 与 `tests/test_main.py` 补齐异步测试函数与 fixture 类型注解
   - `tests/core/memory_rag/test_rag_pipeline.py` 改为字符串路径 monkeypatch，规避模块导出属性类型检查告警

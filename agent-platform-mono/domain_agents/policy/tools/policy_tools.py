@@ -3,7 +3,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from shared.internal_http.client import get_internal_api_client
 from shared.logging.logger import get_logger
-from core.tool_service.skills.base import skill
+from core.tool_service.skill.base import skill
 from core.tool_service.registry import tool_gateway
 
 logger = get_logger(__name__)

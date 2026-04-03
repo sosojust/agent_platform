@@ -137,7 +137,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
     # 工具已通过 domain_agents 中的 @mcp.tool() 和 @skill 装饰器自动注册
     # 不需要额外的 MCP 客户端注册
-    logger.info("tools_registered", count=len(tool_gateway.list_tools()))
+    tools = await tool_gateway.list_tools()
+    logger.info("tools_registered", count=len(tools))
 
     if domain_count > 0:
         readiness.mark_ready("domain_agents")
